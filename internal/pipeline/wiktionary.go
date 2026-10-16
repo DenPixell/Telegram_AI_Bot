@@ -104,13 +104,19 @@ func (w *Wiktionary) Lookup(ctx context.Context, titles []string) (map[string]Re
 	for _, t := range titles {
 		alias[t] = t
 	}
+	// Точный заголовок важнее редиректа: при запросе «собака» и «собаки» вторая форма
+	// перенаправляет на «собака», и без этой проверки статья приписалась бы «собаки».
+	requested := map[string]bool{}
+	for _, t := range titles {
+		requested[t] = true
+	}
 	for _, n := range wr.Query.Normalized {
-		if orig, ok := alias[n.From]; ok {
+		if orig, ok := alias[n.From]; ok && !requested[n.To] {
 			alias[n.To] = orig
 		}
 	}
 	for _, r := range wr.Query.Redirects {
-		if orig, ok := alias[r.From]; ok {
+		if orig, ok := alias[r.From]; ok && !requested[r.To] {
 			alias[r.To] = orig
 		}
 	}

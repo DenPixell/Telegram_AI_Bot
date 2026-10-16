@@ -110,6 +110,19 @@ func TestCategorizeSingleSynonymDoesNotDecide(t *testing.T) {
 	assert.Equal(t, calls, th.calls)
 }
 
+func TestCategorizeAnimalBeatsRailwaySlang(t *testing.T) {
+	// Регрессия: у «собаки» в Викисловаре гипероним «поезд» и синоним «электричка» (жаргон).
+	// Обобщения про животных в словаре должны перевесить случайное значение.
+	th := &fakeThesaurus{pages: map[string]Related{"лемур": {
+		Hypernyms: []string{"млекопитающее", "зверь", "поезд"},
+		Synonyms:  []string{"электричка"},
+	}}}
+	c := NewCategorizer(testDict(t), newMemStore(), th, time.Second)
+	g := categorize(c, "лемур")
+	require.True(t, g.Found())
+	assert.Equal(t, domain.CategoryShopping, g.Term.Category)
+}
+
 func TestCategorizeSynonymsCanAgree(t *testing.T) {
 	th := &fakeThesaurus{pages: map[string]Related{"днюха": {Synonyms: []string{"праздник", "юбилей"}}}}
 	c := NewCategorizer(testDict(t), newMemStore(), th, time.Second)

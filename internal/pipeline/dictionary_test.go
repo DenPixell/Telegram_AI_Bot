@@ -31,6 +31,8 @@ func TestLookup(t *testing.T) {
 		{"носовые платки", "бытовая химия", domain.CategoryHousing},
 		{"день рождения", "праздник", domain.CategoryEntertainment},
 		{"купе", "поезд", domain.CategoryTransport},
+		{"собака", "зоотовары", domain.CategoryShopping}, // регрессия: «собака» -> «поезд» (жаргон) -> транспорт
+		{"корм для кота", "зоотовары", domain.CategoryShopping},
 		// Регрессии.
 		{"купили", "", ""}, // служебное слово не совпадает с «купе»
 		{"найм", "", ""},   // слишком общее слово
