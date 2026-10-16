@@ -1,0 +1,20 @@
+openapi: 3.1.0
+info:
+  title: Expense Bot Panel API
+  version: 0.1.0
+  description: |
+    REST API веб-панели владельца семьи. user_id и family_id берутся только из сессии.
+    Деньги передаются строкой "350.00", даты как "YYYY-MM-DD".
+    TODO(этап 4): /auth, /api/expenses, /api/members, /api/invites, /api/family.
+paths:
+  /healthz:
+    get:
+      summary: Живость процесса
+      responses:
+        "200": { description: OK }
+  /readyz:
+    get:
+      summary: Готовность (БД доступна)
+      responses:
+        "200": { description: OK }
+        "503": { description: БД недоступна }

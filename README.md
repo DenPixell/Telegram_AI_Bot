@@ -1,30 +1,34 @@
 # ИИ-бот учёта семейных расходов
 
-Telegram-бот с LLM-разбором трат + веб-панель главы семьи. Бэкенд на Go, запуск одним `docker compose`.
+Telegram-бот, который понимает траты на естественном языке («кофе 350», «поход в рестик 7698 вчера»),
+и веб-панель владельца семьи. Многосемейный режим: семью можно создать или вступить в неё по приглашению.
+Бэкенд на Go (один бинарник), PostgreSQL, запуск одним `docker compose`.
+
+Архитектура и план: [docs/architecture.md](docs/architecture.md).
+
+> Статус: этап 0 (скелет). Работают конфиг, миграции БД, `/healthz` и `/readyz`. Бот и панель в разработке.
 
 ## Запуск
 
 ```bash
-cp .env.example .env   # заполнить TELEGRAM_TOKEN и LLM_*
+cp .env.example .env   # заполнить TELEGRAM_BOT_TOKEN и LLM_*
 docker compose up --build
 ```
 
-Панель: http://localhost:8080
+Проверка: `curl localhost:8080/readyz`.
+
+Локальная разработка: `make run` поднимает Postgres в docker и запускает сервер через `go run`.
 
 ## Структура
 
-```
-cmd/bot, cmd/api        точки входа (два сервиса, общая БД)
-internal/config         конфиг из env, включая доступ к LLM
-internal/domain         сущности: User, Family, Expense, Category
-internal/repository     интерфейсы хранилища + postgres-реализация
-internal/service        бизнес-логика (траты, семьи, статистика)
-internal/filter         префильтр сообщений до LLM, синонимы
-internal/llm            клиент к OpenAI-совместимому API, промпт
-internal/bot            Telegram-хендлеры
-internal/httpapi        API веб-панели, авторизация через Telegram
-internal/invite         генерация уникальных кодов семьи
-internal/timeutil       часовые пояса
-migrations              SQL-миграции
-web/static              фронтенд панели
-```
+См. [AGENTS.md](AGENTS.md).
+
+## Режимы авторизации панели
+
+| `PANEL_AUTH_MODE` | Поведение |
+|---|---|
+| `magic_link` (по умолчанию) | Владелец пишет боту «панель» и получает одноразовую ссылку входа |
+| `none` | Без авторизации, панель привязана к одной семье (`PANEL_FAMILY_ID`). Только для локального демо |
+
+Отход от формулировки задания («авторизация не нужна») сделан из-за многосемейности: без авторизации
+панель показывала бы данные всех семей.

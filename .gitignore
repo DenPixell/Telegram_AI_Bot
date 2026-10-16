@@ -3,4 +3,5 @@
 *.exe
 *.test
 *.out
-.idea/workspace.xml
+.idea/
+.DS_Store

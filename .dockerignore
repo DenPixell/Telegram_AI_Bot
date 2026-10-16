@@ -2,3 +2,6 @@
 .idea
 .env
 bin
+docs
+web
+*.md

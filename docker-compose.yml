@@ -1,3 +1,7 @@
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
 services:
   db:
     image: postgres:16-alpine
@@ -5,29 +9,41 @@ services:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
       POSTGRES_DB: expenses
+      TZ: UTC
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5432:5432" # для локального go run, наружу не открыт
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d expenses"]
       interval: 5s
+      timeout: 3s
       retries: 10
-
-  bot:
-    build: { context: ., args: { TARGET: bot } }
-    env_file: .env
-    depends_on:
-      db: { condition: service_healthy }
     restart: unless-stopped
+    logging: *logging
 
-  api:
-    build: { context: ., args: { TARGET: api } }
+  # REST API + Telegram-бот в одном процессе. Миграции применяются при старте.
+  # Строго одна реплика: две реплики с long polling получают 409 Conflict от Telegram.
+  app:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
     env_file: .env
+    environment:
+      TZ: UTC
     ports:
       - "8080:8080"
     depends_on:
       db: { condition: service_healthy }
     restart: unless-stopped
+    deploy:
+      replicas: 1
+      resources:
+        limits: { cpus: "1", memory: 256M }
+    logging: *logging
+
+  # TODO(этап 9): web (SPA + nginx, прокси /api на app:8080, порт 3000).
+  # TODO(этап 10-11): профили prod (caddy, backup) и local (ollama).
 
 volumes:
   pgdata:
