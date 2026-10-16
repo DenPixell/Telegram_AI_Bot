@@ -1,5 +1,10 @@
-// Package llm - интерфейс клиента и OpenAI-совместимая реализация: таймауты, ретраи,
-// fallback-цепочка, circuit breaker, ограничение параллелизма, учёт токенов, fake для тестов.
+// Package llm - доступ к языковой модели через один интерфейс Client.
 //
-// TODO(этап 6): client.go, openai.go, fallback.go, breaker.go, fake.go.
+//   - client.go: Client, Request/Response, инструменты (function calling), Caller в контексте;
+//   - openai.go: OpenAI-совместимый /chat/completions (OpenRouter, Gemini, Groq, Ollama, ...);
+//   - resilience.go: ретраи с джиттером и Retry-After, circuit breaker с пробным запросом,
+//     fallback-цепочка провайдеров, лимит параллелизма с очередью;
+//   - usage.go: учёт каждой попытки (токены, задержка, успех) для квот;
+//   - build.go: сборка цепочки из конфига;
+//   - fake.go: скриптованный клиент для тестов.
 package llm

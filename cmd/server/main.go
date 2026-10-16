@@ -15,6 +15,7 @@ import (
 
 	"expense-bot/internal/config"
 	"expense-bot/internal/httpapi"
+	"expense-bot/internal/llm"
 	"expense-bot/internal/pipeline"
 	"expense-bot/internal/service"
 	"expense-bot/internal/storage/postgres"
@@ -61,9 +62,11 @@ func run() error {
 		thesaurus = pipeline.NewWiktionary(cfg.Synonyms.OnlineURL, cfg.Synonyms.OnlineTimeout)
 	}
 	categorizer := pipeline.NewCategorizer(dict, store, thesaurus, cfg.Synonyms.OnlineTimeout)
-	// TODO(этап 7-8): analyzer, лимиты и квоты используются ботом и агентом.
+	// TODO(этап 7-8): analyzer, LLM-клиент, лимиты и квоты используются ботом и агентом.
 	_ = pipeline.NewAnalyzer(dict, categorizer, cfg.Limits.MaxMessageLen)
 	slog.Info("dictionary loaded", "forms", dict.Size(), "online_thesaurus", cfg.Synonyms.OnlineEnabled)
+	llmClient := llm.New(cfg, store)
+	slog.Info("llm configured", "chain", llmClient.Name(), "agent_mode", cfg.LLM.AgentMode)
 
 	families := service.NewFamilies(store, service.FamiliesConfig{
 		MaxMembers:    cfg.Limits.MaxFamilyMembers,

@@ -3,23 +3,18 @@ package postgres
 import (
 	"context"
 	"time"
+
+	"expense-bot/internal/llm"
 )
 
-// LLMUsage - один запрос к LLM для учёта квот и стоимости.
-type LLMUsage struct {
-	UserID, FamilyID int64
-	Model            string
-	PromptTokens     int
-	CompletionTokens int
-	Latency          time.Duration
-	OK               bool
-}
-
-func (s *Store) RecordLLMUsage(ctx context.Context, u LLMUsage) error {
+// RecordUsage сохраняет попытку запроса к LLM (реализует llm.UsageRecorder).
+// user_id и family_id = NULL, если запрос не от пользователя (служебный).
+func (s *Store) RecordUsage(ctx context.Context, u llm.UsageRecord) error {
 	_, err := s.q.Exec(ctx, `
 		INSERT INTO llm_usage (user_id, family_id, model, prompt_tokens, completion_tokens, latency_ms, ok)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		u.UserID, u.FamilyID, u.Model, u.PromptTokens, u.CompletionTokens, u.Latency.Milliseconds(), u.OK)
+		VALUES (NULLIF($1::bigint, 0), NULLIF($2::bigint, 0), $3, $4, $5, $6, $7)`,
+		u.Caller.UserID, u.Caller.FamilyID, u.Provider+" "+u.Model, u.PromptTokens, u.CompletionTokens,
+		u.Latency.Milliseconds(), u.OK)
 	return mapErr("record llm usage", err)
 }
 
