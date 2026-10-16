@@ -15,6 +15,7 @@ import (
 
 	"expense-bot/internal/config"
 	"expense-bot/internal/httpapi"
+	"expense-bot/internal/service"
 	"expense-bot/internal/storage/postgres"
 )
 
@@ -50,9 +51,36 @@ func run() error {
 	}
 	store := postgres.New(pool)
 
+	families := service.NewFamilies(store, service.FamiliesConfig{
+		MaxMembers:    cfg.Limits.MaxFamilyMembers,
+		InviteTTL:     cfg.Limits.InviteTTL,
+		InviteMaxUses: cfg.Limits.InviteMaxUses,
+		DefaultTZ:     cfg.AppTZ,
+	})
+	expenses := service.NewExpenses(store, cfg.AppTZ)
+	auth := service.NewAuth(store)
+	// TODO(этап 8): username из getMe, если BOT_USERNAME не задан.
+	botUsername := func() string { return cfg.Telegram.BotUsername }
+
+	api := httpapi.New(httpapi.Deps{
+		DB:            store,
+		Store:         store,
+		Families:      families,
+		Expenses:      expenses,
+		Auth:          auth,
+		AuthMode:      cfg.Panel.AuthMode,
+		PanelFamilyID: cfg.Panel.FamilyID,
+		PublicURL:     cfg.Panel.PublicURL,
+		BotUsername:   botUsername,
+	})
+	if cfg.Panel.AuthMode == config.PanelAuthNone {
+		slog.Warn("panel authentication is disabled (PANEL_AUTH_MODE=none), use only for local demo")
+	}
+	go cleanupLoop(ctx, store)
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(store).Handler(),
+		Handler:           api.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -82,6 +110,24 @@ func run() error {
 		return fmt.Errorf("http shutdown: %w", err)
 	}
 	return nil
+}
+
+// cleanupLoop раз в час удаляет истёкшие токены входа и сессии.
+func cleanupLoop(ctx context.Context, store *postgres.Store) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if n, err := store.DeleteExpiredAuth(ctx); err != nil {
+				slog.WarnContext(ctx, "cleanup failed", "err", err)
+			} else if n > 0 {
+				slog.InfoContext(ctx, "expired auth records removed", "count", n)
+			}
+		}
+	}
 }
 
 func newLogger(level string) *slog.Logger {

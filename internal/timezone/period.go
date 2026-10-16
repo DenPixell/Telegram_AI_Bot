@@ -59,9 +59,9 @@ func (p Period) Range(today, from, to domain.Date) (domain.Date, domain.Date, er
 		return domain.Date{}, domain.Date{}, nil
 	case PeriodCustom:
 		if !from.IsZero() && !to.IsZero() && to.Before(from) {
-			return domain.Date{}, domain.Date{}, fmt.Errorf("%w: period start %s is after end %s", domain.ErrValidation, from, to)
+			return domain.Date{}, domain.Date{}, fmt.Errorf("%w: начало периода %s позже конца %s", domain.ErrValidation, from, to)
 		}
 		return from, to, nil
 	}
-	return domain.Date{}, domain.Date{}, fmt.Errorf("%w: unknown period %q", domain.ErrValidation, p)
+	return domain.Date{}, domain.Date{}, fmt.Errorf("%w: неизвестный период %q", domain.ErrValidation, p)
 }

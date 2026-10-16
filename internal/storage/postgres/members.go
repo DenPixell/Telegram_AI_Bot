@@ -79,3 +79,10 @@ func (s *Store) RemoveMember(ctx context.Context, familyID, userID int64) error 
 	return s.execOne(ctx, "remove member",
 		`DELETE FROM family_members WHERE family_id = $1 AND user_id = $2`, familyID, userID)
 }
+
+// FamilyOwner возвращает владельца семьи (режим панели none: действия от его имени).
+func (s *Store) FamilyOwner(ctx context.Context, familyID int64) (domain.Member, error) {
+	m, err := scanMember(s.q.QueryRow(ctx,
+		`SELECT `+memberColumns+` FROM family_members m WHERE m.family_id = $1 AND m.role = 'owner'`, familyID))
+	return m, mapErr("family owner", err)
+}

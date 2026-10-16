@@ -24,7 +24,7 @@ func TestHealthAndReady(t *testing.T) {
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()
-		New(fakePinger{tc.db}).Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
+		New(Deps{DB: fakePinger{tc.db}, AuthMode: "magic_link"}).Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
 		if rec.Code != tc.want {
 			t.Errorf("%s (db err %v): code %d, want %d", tc.path, tc.db, rec.Code, tc.want)
 		}

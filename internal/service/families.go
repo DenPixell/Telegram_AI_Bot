@@ -56,7 +56,7 @@ func (f *Families) Actor(ctx context.Context, userID int64) (domain.Actor, error
 // CreateFamily создаёт семью с пользователем-владельцем и первым приглашением в одной транзакции.
 // Пояс семьи берётся из пояса пользователя, если он уже задан, иначе APP_TZ.
 func (f *Families) CreateFamily(ctx context.Context, userID int64, name string) (domain.Family, domain.Invite, error) {
-	name, err := cleanText(name, MaxFamilyNameLen, "family name")
+	name, err := cleanText(name, MaxFamilyNameLen, "название семьи")
 	if err != nil {
 		return domain.Family{}, domain.Invite{}, err
 	}
@@ -162,12 +162,12 @@ func (f *Families) UpdateFamily(ctx context.Context, a domain.Actor, name, tz st
 	if err := requireOwner(a); err != nil {
 		return domain.Family{}, fmt.Errorf("update family: %w", err)
 	}
-	name, err := cleanText(name, MaxFamilyNameLen, "family name")
+	name, err := cleanText(name, MaxFamilyNameLen, "название семьи")
 	if err != nil {
 		return domain.Family{}, err
 	}
 	if _, err := time.LoadLocation(tz); err != nil || tz == "" {
-		return domain.Family{}, fmt.Errorf("%w: unknown timezone %q", domain.ErrValidation, tz)
+		return domain.Family{}, fmt.Errorf("%w: неизвестный часовой пояс %q", domain.ErrValidation, tz)
 	}
 	fam, err := f.store.UpdateFamily(ctx, a.FamilyID, name, tz)
 	if err != nil {
@@ -235,7 +235,7 @@ func requireOwner(a domain.Actor) error {
 func cleanText(s string, maxLen int, field string) (string, error) {
 	s = strings.TrimSpace(s)
 	if utf8.RuneCountInString(s) > maxLen {
-		return "", fmt.Errorf("%w: %s longer than %d characters", domain.ErrValidation, field, maxLen)
+		return "", fmt.Errorf("%w: %s длиннее %d символов", domain.ErrValidation, field, maxLen)
 	}
 	return s, nil
 }

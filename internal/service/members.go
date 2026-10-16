@@ -26,7 +26,7 @@ func (f *Families) SetRelation(ctx context.Context, a domain.Actor, userID int64
 	if err := requireOwner(a); err != nil {
 		return fmt.Errorf("set relation: %w", err)
 	}
-	relation, err := cleanText(relation, MaxRelationLen, "relation")
+	relation, err := cleanText(relation, MaxRelationLen, "подпись")
 	if err != nil {
 		return err
 	}
@@ -43,7 +43,7 @@ func (f *Families) RemoveMember(ctx context.Context, a domain.Actor, userID int6
 		return fmt.Errorf("remove member: %w", err)
 	}
 	if userID == a.UserID {
-		return fmt.Errorf("remove member: %w: owner cannot remove themselves", domain.ErrValidation)
+		return fmt.Errorf("remove member: %w: владелец не может удалить сам себя, сначала передайте владение", domain.ErrValidation)
 	}
 	err := f.store.WithTx(ctx, func(tx *postgres.Store) error {
 		if err := tx.LockUser(ctx, userID); err != nil {
@@ -67,7 +67,7 @@ func (f *Families) TransferOwnership(ctx context.Context, a domain.Actor, newOwn
 		return fmt.Errorf("transfer ownership: %w", err)
 	}
 	if newOwnerID == a.UserID {
-		return fmt.Errorf("transfer ownership: %w: already the owner", domain.ErrValidation)
+		return fmt.Errorf("transfer ownership: %w: этот участник уже владелец", domain.ErrValidation)
 	}
 	err := f.store.WithTx(ctx, func(tx *postgres.Store) error {
 		// Блокировки в порядке возрастания id, чтобы два встречных вызова не взаимоблокировались.
