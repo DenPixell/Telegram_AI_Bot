@@ -142,3 +142,13 @@ func isDigits(s string) bool {
 	}
 	return true
 }
+
+// ParseAmounts возвращает все суммы в тексте. Агент сверяет с ними суммы из ответа модели:
+// сумма, которой нет в сообщении, - выдумка модели.
+func ParseAmounts(text string) []domain.Money {
+	var out []domain.Money
+	for _, a := range parseAmounts(tokenize(Normalize(text))) {
+		out = append(out, a.Value)
+	}
+	return out
+}

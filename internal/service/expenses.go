@@ -79,7 +79,7 @@ func (s *Expenses) Create(ctx context.Context, a domain.Actor, e domain.Expense)
 			return domain.Expense{}, fmt.Errorf("create expense: %w: этот человек не состоит в семье", domain.ErrValidation)
 		}
 	}
-	today, err := s.today(ctx, e.UserID)
+	today, err := s.Today(ctx, e.UserID)
 	if err != nil {
 		return domain.Expense{}, err
 	}
@@ -102,7 +102,7 @@ func (s *Expenses) Update(ctx context.Context, scope domain.ExpenseScope, e doma
 	if err != nil {
 		return domain.Expense{}, fmt.Errorf("update expense: %w", err)
 	}
-	today, err := s.today(ctx, cur.UserID)
+	today, err := s.Today(ctx, cur.UserID)
 	if err != nil {
 		return domain.Expense{}, err
 	}
@@ -123,8 +123,17 @@ func (s *Expenses) Delete(ctx context.Context, scope domain.ExpenseScope, id int
 	return nil
 }
 
-// today - текущая дата в поясе пользователя (users.timezone -> пояс семьи -> APP_TZ).
-func (s *Expenses) today(ctx context.Context, userID int64) (domain.Date, error) {
+// Last - последняя добавленная трата в scope (по created_at).
+func (s *Expenses) Last(ctx context.Context, scope domain.ExpenseScope) (domain.Expense, error) {
+	e, err := s.store.LastExpense(ctx, scope)
+	if err != nil {
+		return domain.Expense{}, fmt.Errorf("last expense: %w", err)
+	}
+	return e, nil
+}
+
+// Today - текущая дата в поясе пользователя (users.timezone -> пояс семьи -> APP_TZ).
+func (s *Expenses) Today(ctx context.Context, userID int64) (domain.Date, error) {
 	u, err := s.store.GetUser(ctx, userID)
 	if err != nil {
 		return domain.Date{}, fmt.Errorf("expense owner: %w", err)

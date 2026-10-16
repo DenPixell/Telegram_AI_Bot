@@ -13,6 +13,7 @@ import (
 	"time"
 	_ "time/tzdata" // база часовых поясов в образе без системной tzdata
 
+	"expense-bot/internal/agent"
 	"expense-bot/internal/config"
 	"expense-bot/internal/httpapi"
 	"expense-bot/internal/llm"
@@ -53,6 +54,15 @@ func run() error {
 	}
 	store := postgres.New(pool)
 
+	families := service.NewFamilies(store, service.FamiliesConfig{
+		MaxMembers:    cfg.Limits.MaxFamilyMembers,
+		InviteTTL:     cfg.Limits.InviteTTL,
+		InviteMaxUses: cfg.Limits.InviteMaxUses,
+		DefaultTZ:     cfg.AppTZ,
+	})
+	expenses := service.NewExpenses(store, cfg.AppTZ)
+	auth := service.NewAuth(store)
+
 	dict, err := pipeline.LoadDictionary(cfg.Synonyms.Path)
 	if err != nil {
 		return err
@@ -62,20 +72,16 @@ func run() error {
 		thesaurus = pipeline.NewWiktionary(cfg.Synonyms.OnlineURL, cfg.Synonyms.OnlineTimeout)
 	}
 	categorizer := pipeline.NewCategorizer(dict, store, thesaurus, cfg.Synonyms.OnlineTimeout)
-	// TODO(этап 7-8): analyzer, LLM-клиент, лимиты и квоты используются ботом и агентом.
-	_ = pipeline.NewAnalyzer(dict, categorizer, cfg.Limits.MaxMessageLen)
+	analyzer := pipeline.NewAnalyzer(dict, categorizer, cfg.Limits.MaxMessageLen)
 	slog.Info("dictionary loaded", "forms", dict.Size(), "online_thesaurus", cfg.Synonyms.OnlineEnabled)
 	llmClient := llm.New(cfg, store)
 	slog.Info("llm configured", "chain", llmClient.Name(), "agent_mode", cfg.LLM.AgentMode)
+	quota := pipeline.NewQuota(store, cfg.Limits.LLMQuotaUser, cfg.Limits.LLMQuotaFamily, cfg.Limits.LLMQuotaGlobal)
+	expenseAgent := agent.New(llmClient, expenses, dict, categorizer, analyzer, quota,
+		agent.Config{Mode: cfg.LLM.AgentMode, MaxTokens: cfg.LLM.MaxOutputTokens})
+	// TODO(этап 8): telegram-адаптер передаёт сообщения активных пользователей в expenseAgent.Handle.
+	_ = expenseAgent
 
-	families := service.NewFamilies(store, service.FamiliesConfig{
-		MaxMembers:    cfg.Limits.MaxFamilyMembers,
-		InviteTTL:     cfg.Limits.InviteTTL,
-		InviteMaxUses: cfg.Limits.InviteMaxUses,
-		DefaultTZ:     cfg.AppTZ,
-	})
-	expenses := service.NewExpenses(store, cfg.AppTZ)
-	auth := service.NewAuth(store)
 	// TODO(этап 8): username из getMe, если BOT_USERNAME не задан.
 	botUsername := func() string { return cfg.Telegram.BotUsername }
 
