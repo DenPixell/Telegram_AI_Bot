@@ -42,7 +42,20 @@ services:
         limits: { cpus: "1", memory: 256M }
     logging: *logging
 
-  # TODO(этап 9): web (SPA + nginx, прокси /api на app:8080, порт 3000).
+  # Веб-панель: статика SPA + прокси /api на app:8080 с того же origin (PUBLIC_URL).
+  web:
+    build:
+      context: web
+    ports:
+      - "3000:80"
+    depends_on:
+      - app
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 64M }
+    logging: *logging
+
   # TODO(этап 10-11): профили prod (caddy, backup) и local (ollama).
 
 volumes:

@@ -49,3 +49,29 @@ type MemberProfile struct {
 	DisplayName string
 	Username    string
 }
+
+// ExpenseSummary - итоги по фильтру для сводки панели.
+type ExpenseSummary struct {
+	Total      Money
+	Count      int
+	ByCategory []CategoryTotal // по убыванию суммы
+	ByMember   []MemberTotal   // по убыванию суммы
+	ByDay      []DayTotal      // по возрастанию даты, только дни с тратами
+}
+
+type CategoryTotal struct {
+	Category Category
+	Total    Money
+	Count    int
+}
+
+type MemberTotal struct {
+	UserID int64
+	Total  Money
+	Count  int
+}
+
+type DayTotal struct {
+	Date  Date
+	Total Money
+}

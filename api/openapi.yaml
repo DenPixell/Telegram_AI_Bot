@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Expense Bot Panel API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     REST API веб-панели владельца семьи.
 
@@ -134,6 +134,22 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /api/expenses/summary:
+    get:
+      summary: Итоги по категориям, людям и дням для тех же фильтров, что у /api/expenses
+      parameters:
+        - { name: member_id, in: query, schema: { type: integer, format: int64 } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: category, in: query, schema: { type: array, items: { $ref: "#/components/schemas/Category" } }, style: form, explode: true }
+        - { name: q, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Summary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
   /api/expenses/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
@@ -346,6 +362,36 @@ components:
         count: { type: integer }
         limit: { type: integer }
         offset: { type: integer }
+    Summary:
+      type: object
+      properties:
+        total: { $ref: "#/components/schemas/Money" }
+        count: { type: integer }
+        by_category:
+          type: array
+          description: По убыванию суммы
+          items:
+            type: object
+            properties:
+              category: { $ref: "#/components/schemas/Category" }
+              total: { $ref: "#/components/schemas/Money" }
+              count: { type: integer }
+        by_member:
+          type: array
+          items:
+            type: object
+            properties:
+              user_id: { type: integer, format: int64 }
+              total: { $ref: "#/components/schemas/Money" }
+              count: { type: integer }
+        by_day:
+          type: array
+          description: Только дни с тратами, по возрастанию даты (до 400)
+          items:
+            type: object
+            properties:
+              date: { type: string, format: date }
+              total: { $ref: "#/components/schemas/Money" }
     ExpenseCreate:
       type: object
       required: [amount, category]

@@ -13,22 +13,21 @@ func (s *Server) categories(w http.ResponseWriter, _ *http.Request, _ domain.Act
 	writeJSON(w, http.StatusOK, map[string]any{"items": domain.Categories})
 }
 
-// listExpenses: GET /api/expenses?member_id=&from=&to=&category=&q=&limit=&offset=
-// category можно передать несколько раз или через запятую.
-func (s *Server) listExpenses(w http.ResponseWriter, r *http.Request, a domain.Actor) {
+// parseFilter разбирает фильтры: ?member_id=&from=&to=&category=&q=&limit=&offset=
+// category можно передать несколько раз или через запятую. false - ответ уже отправлен.
+func (s *Server) parseFilter(w http.ResponseWriter, r *http.Request, a domain.Actor) (domain.ExpenseFilter, bool) {
 	scope, err := service.PanelScope(a)
 	if err != nil {
 		writeError(w, r, err)
-		return
+		return domain.ExpenseFilter{}, false
 	}
 	q := r.URL.Query()
 	f := domain.ExpenseFilter{Scope: scope}
-
 	if v := q.Get("member_id"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n <= 0 {
 			badRequest(w, "invalid member_id")
-			return
+			return domain.ExpenseFilter{}, false
 		}
 		f.MemberID = n
 	}
@@ -37,7 +36,7 @@ func (s *Server) listExpenses(w http.ResponseWriter, r *http.Request, a domain.A
 			d, err := domain.ParseDate(v)
 			if err != nil {
 				badRequest(w, "invalid %s: expected YYYY-MM-DD", name)
-				return
+				return domain.ExpenseFilter{}, false
 			}
 			*dst = d
 		}
@@ -47,7 +46,7 @@ func (s *Server) listExpenses(w http.ResponseWriter, r *http.Request, a domain.A
 			cat := domain.Category(strings.TrimSpace(c))
 			if !cat.Valid() {
 				badRequest(w, "unknown category %q", c)
-				return
+				return domain.ExpenseFilter{}, false
 			}
 			f.Categories = append(f.Categories, cat)
 		}
@@ -60,7 +59,7 @@ func (s *Server) listExpenses(w http.ResponseWriter, r *http.Request, a domain.A
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 0 {
 				badRequest(w, "invalid %s", name)
-				return
+				return domain.ExpenseFilter{}, false
 			}
 			*dst = n
 		}
@@ -69,7 +68,14 @@ func (s *Server) listExpenses(w http.ResponseWriter, r *http.Request, a domain.A
 		f.Limit = domain.DefaultLimit
 	}
 	f.Limit = min(f.Limit, domain.MaxLimit)
+	return f, true
+}
 
+func (s *Server) listExpenses(w http.ResponseWriter, r *http.Request, a domain.Actor) {
+	f, ok := s.parseFilter(w, r, a)
+	if !ok {
+		return
+	}
 	items, total, count, err := s.Expenses.List(r.Context(), f)
 	if err != nil {
 		writeError(w, r, err)
@@ -78,6 +84,20 @@ func (s *Server) listExpenses(w http.ResponseWriter, r *http.Request, a domain.A
 	writeJSON(w, http.StatusOK, expenseListDTO{
 		Items: mapSlice(items, toExpenseDTO), Total: total, Count: count, Limit: f.Limit, Offset: f.Offset,
 	})
+}
+
+// expenseSummary: GET /api/expenses/summary с теми же фильтрами.
+func (s *Server) expenseSummary(w http.ResponseWriter, r *http.Request, a domain.Actor) {
+	f, ok := s.parseFilter(w, r, a)
+	if !ok {
+		return
+	}
+	sum, err := s.Expenses.Summary(r.Context(), f)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toSummaryDTO(sum))
 }
 
 func (s *Server) getExpense(w http.ResponseWriter, r *http.Request, a domain.Actor) {

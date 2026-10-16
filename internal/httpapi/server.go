@@ -70,6 +70,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/categories", s.authed(s.categories))
 
 	mux.Handle("GET /api/expenses", s.authed(s.listExpenses))
+	mux.Handle("GET /api/expenses/summary", s.authed(s.expenseSummary))
 	mux.Handle("POST /api/expenses", s.authed(s.createExpense))
 	mux.Handle("GET /api/expenses/{id}", s.authed(s.getExpense))
 	mux.Handle("PUT /api/expenses/{id}", s.authed(s.updateExpense))

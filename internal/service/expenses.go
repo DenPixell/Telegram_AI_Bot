@@ -177,3 +177,15 @@ func truncateRunes(s string, n int) string {
 	}
 	return string([]rune(s)[:n])
 }
+
+// Summary - итоги для сводки панели по тому же фильтру, что и List.
+func (s *Expenses) Summary(ctx context.Context, f domain.ExpenseFilter) (domain.ExpenseSummary, error) {
+	if !f.From.IsZero() && !f.To.IsZero() && f.To.Before(f.From) {
+		return domain.ExpenseSummary{}, fmt.Errorf("%w: начало периода позже конца", domain.ErrValidation)
+	}
+	sum, err := s.store.SummarizeExpenses(ctx, f)
+	if err != nil {
+		return domain.ExpenseSummary{}, fmt.Errorf("expense summary: %w", err)
+	}
+	return sum, nil
+}

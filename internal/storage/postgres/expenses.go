@@ -198,3 +198,56 @@ func (s *Store) DeleteExpense(ctx context.Context, scope domain.ExpenseScope, id
 	}
 	return s.execOne(ctx, "delete expense", `DELETE FROM expenses WHERE id = $1 AND `+where, args...)
 }
+
+// SummarizeExpenses - итоги по категориям, участникам и дням для того же фильтра,
+// что и ListExpenses (без Limit/Offset). Агрегация в БД, а не по странице на клиенте.
+func (s *Store) SummarizeExpenses(ctx context.Context, f domain.ExpenseFilter) (domain.ExpenseSummary, error) {
+	var args []any
+	where, err := filterWhere(f, &args)
+	if err != nil {
+		return domain.ExpenseSummary{}, err
+	}
+	var sum domain.ExpenseSummary
+	if sum.Total, sum.Count, err = s.SumExpenses(ctx, f); err != nil {
+		return domain.ExpenseSummary{}, err
+	}
+	rows, err := s.q.Query(ctx, `SELECT category, sum(amount_minor), count(*) FROM expenses WHERE `+where+
+		` GROUP BY category ORDER BY sum(amount_minor) DESC, category`, args...)
+	if err != nil {
+		return domain.ExpenseSummary{}, mapErr("summary by category", err)
+	}
+	if sum.ByCategory, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (domain.CategoryTotal, error) {
+		var t domain.CategoryTotal
+		return t, r.Scan(&t.Category, &t.Total, &t.Count)
+	}); err != nil {
+		return domain.ExpenseSummary{}, mapErr("summary by category", err)
+	}
+	rows, err = s.q.Query(ctx, `SELECT user_id, sum(amount_minor), count(*) FROM expenses WHERE `+where+
+		` GROUP BY user_id ORDER BY sum(amount_minor) DESC, user_id`, args...)
+	if err != nil {
+		return domain.ExpenseSummary{}, mapErr("summary by member", err)
+	}
+	if sum.ByMember, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (domain.MemberTotal, error) {
+		var t domain.MemberTotal
+		return t, r.Scan(&t.UserID, &t.Total, &t.Count)
+	}); err != nil {
+		return domain.ExpenseSummary{}, mapErr("summary by member", err)
+	}
+	rows, err = s.q.Query(ctx, `SELECT spent_at, sum(amount_minor) FROM expenses WHERE `+where+
+		` GROUP BY spent_at ORDER BY spent_at LIMIT 400`, args...)
+	if err != nil {
+		return domain.ExpenseSummary{}, mapErr("summary by day", err)
+	}
+	if sum.ByDay, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (domain.DayTotal, error) {
+		var (
+			t domain.DayTotal
+			d time.Time
+		)
+		err := r.Scan(&d, &t.Total)
+		t.Date = domain.DateOf(d, time.UTC)
+		return t, err
+	}); err != nil {
+		return domain.ExpenseSummary{}, mapErr("summary by day", err)
+	}
+	return sum, nil
+}

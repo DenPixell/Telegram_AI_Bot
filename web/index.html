@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cut" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f6f5f1" />
+    <title>Семейный бюджет</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <script>
+      // Тема ставится до отрисовки, чтобы не было вспышки светлого экрана ночью.
+      // Логика повторяет src/theme.ts.
+      (function () {
+        var mode = "auto", dark = "18:00", light = "08:00";
+        try {
+          var s = JSON.parse(localStorage.getItem("panel.theme") || "{}");
+          mode = s.mode || mode; dark = s.darkFrom || dark; light = s.lightFrom || light;
+        } catch (e) {}
+        function m(t) { var p = t.split(":"); return +p[0] * 60 + +p[1]; }
+        var now = new Date(), t = now.getHours() * 60 + now.getMinutes(), d = m(dark), l = m(light);
+        var isDark = mode === "dark" || (mode === "auto" && (d > l ? t >= d || t < l : t >= d && t < l));
+        document.documentElement.dataset.theme = isDark ? "dark" : "light";
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -92,3 +92,44 @@ func mapSlice[T, R any](in []T, f func(T) R) []R {
 	}
 	return out
 }
+
+type summaryDTO struct {
+	Total      domain.Money       `json:"total"`
+	Count      int                `json:"count"`
+	ByCategory []categoryTotalDTO `json:"by_category"`
+	ByMember   []memberTotalDTO   `json:"by_member"`
+	ByDay      []dayTotalDTO      `json:"by_day"`
+}
+
+type categoryTotalDTO struct {
+	Category string       `json:"category"`
+	Total    domain.Money `json:"total"`
+	Count    int          `json:"count"`
+}
+
+type memberTotalDTO struct {
+	UserID int64        `json:"user_id"`
+	Total  domain.Money `json:"total"`
+	Count  int          `json:"count"`
+}
+
+type dayTotalDTO struct {
+	Date  domain.Date  `json:"date"`
+	Total domain.Money `json:"total"`
+}
+
+func toSummaryDTO(s domain.ExpenseSummary) summaryDTO {
+	return summaryDTO{
+		Total: s.Total,
+		Count: s.Count,
+		ByCategory: mapSlice(s.ByCategory, func(c domain.CategoryTotal) categoryTotalDTO {
+			return categoryTotalDTO{Category: string(c.Category), Total: c.Total, Count: c.Count}
+		}),
+		ByMember: mapSlice(s.ByMember, func(m domain.MemberTotal) memberTotalDTO {
+			return memberTotalDTO{UserID: m.UserID, Total: m.Total, Count: m.Count}
+		}),
+		ByDay: mapSlice(s.ByDay, func(d domain.DayTotal) dayTotalDTO {
+			return dayTotalDTO{Date: d.Date, Total: d.Total}
+		}),
+	}
+}
