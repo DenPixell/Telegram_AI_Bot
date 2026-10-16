@@ -233,7 +233,7 @@ func requireOwner(a domain.Actor) error {
 
 // cleanText обрезает пробелы и проверяет длину в символах.
 func cleanText(s string, maxLen int, field string) (string, error) {
-	s = strings.TrimSpace(s)
+	s = strings.TrimSpace(stripNUL(s))
 	if utf8.RuneCountInString(s) > maxLen {
 		return "", fmt.Errorf("%w: %s длиннее %d символов", domain.ErrValidation, field, maxLen)
 	}

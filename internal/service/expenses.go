@@ -162,13 +162,16 @@ func validateExpense(e domain.Expense, today domain.Date) (domain.Expense, error
 	if e.SpentAt.Before(earliest) || today.AddDays(maxFutureDays).Before(e.SpentAt) {
 		return e, fmt.Errorf("%w: дата %s вне допустимого диапазона (не раньше чем 5 лет назад и не позже завтра)", domain.ErrValidation, e.SpentAt)
 	}
-	e.Title = strings.TrimSpace(e.Title)
+	e.Title = strings.TrimSpace(stripNUL(e.Title))
 	if utf8.RuneCountInString(e.Title) > MaxTitleLen {
 		return e, fmt.Errorf("%w: название длиннее %d символов", domain.ErrValidation, MaxTitleLen)
 	}
-	e.Comment = truncateRunes(strings.TrimSpace(e.Comment), domain.MaxCommentLen)
+	e.Comment = truncateRunes(strings.TrimSpace(stripNUL(e.Comment)), domain.MaxCommentLen)
 	return e, nil
 }
+
+// stripNUL убирает нулевые символы: PostgreSQL не хранит их в TEXT, а JSON (\u0000) их пропускает.
+func stripNUL(s string) string { return strings.ReplaceAll(s, "\x00", "") }
 
 // truncateRunes обрезает строку до n символов (не байт).
 func truncateRunes(s string, n int) string {

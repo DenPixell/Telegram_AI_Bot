@@ -172,9 +172,11 @@ func (d *Dictionary) Lookup(words []string) []Match {
 			}
 		}
 		if !found {
+			// Стеммер Портера бывает несимметричен: «ресторан» -> «рестора», но «ресторане» ->
+			// «ресторан». Повторный стемминг основы сводит формы к одному ключу.
 			// Уменьшительные формы: «мандаринчики» -> «мандарин», «кофеечек» -> «кофе».
 			if !d.fillers[words[i]] {
-				for _, v := range diminutiveStems(stems[i]) {
+				for _, v := range append([]string{Stem(stems[i])}, diminutiveStems(stems[i])...) {
 					if t, ok := d.phrases[v]; ok {
 						res = append(res, Match{Term: t, Start: i, End: i + 1})
 						break
@@ -203,8 +205,14 @@ func diminutiveStems(stem string) []string {
 
 // LookupWord - термин для одного слова или фразы (для онлайн-тезауруса и кэша).
 func (d *Dictionary) LookupWord(word string) (Term, bool) {
-	t, ok := d.phrases[stemPhrase(wordsOf(Normalize(word)))]
-	return t, ok
+	words := wordsOf(Normalize(word))
+	if t, ok := d.phrases[stemPhrase(words)]; ok {
+		return t, true
+	}
+	if m := d.Lookup(words); len(m) == 1 && m[0].End-m[0].Start == len(words) {
+		return m[0].Term, true
+	}
+	return Term{}, false
 }
 
 // Expand возвращает все формы терминов, найденных в запросе, для поиска в панели и боте:
