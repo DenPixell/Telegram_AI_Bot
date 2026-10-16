@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 	_ "time/tzdata" // база часовых поясов в образе без системной tzdata
@@ -27,6 +28,10 @@ import (
 const shutdownTimeout = 15 * time.Second
 
 func main() {
+	// «server healthcheck» - для healthcheck в Docker: в distroless-образе нет curl.
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck())
+	}
 	if err := run(); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
@@ -172,6 +177,27 @@ func run() error {
 		return fmt.Errorf("http shutdown: %w", httpErr)
 	}
 	return nil
+}
+
+// healthcheck опрашивает /healthz своего же процесса: 0 - жив, 1 - нет.
+func healthcheck() int {
+	addr := os.Getenv("HTTP_ADDR")
+	if addr == "" {
+		addr = ":8080"
+	}
+	if strings.HasPrefix(addr, ":") {
+		addr = "127.0.0.1" + addr
+	}
+	c := http.Client{Timeout: 3 * time.Second}
+	resp, err := c.Get("http://" + addr + "/healthz")
+	if err != nil {
+		return 1
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
 }
 
 // cleanupLoop раз в час удаляет истёкшие токены входа, сессии и журнал дедупликации апдейтов.

@@ -1,0 +1,9 @@
+# HTTPS для панели: сертификат Let's Encrypt выдаётся и продлевается автоматически.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:80
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+}

@@ -20,6 +20,8 @@ internal/timezone      разбор часовых поясов
 internal/llm           OpenAI-совместимый клиент, fallback, breaker, fake
 config/synonyms.yaml   словарь синонимов, стоп-слова, лексикон действий
 api/openapi.yaml       контракт REST API
+web/                   панель: React + Vite + TS, nginx; сборка и dev только в Docker (node:22-alpine)
+deploy/                Dockerfile бэкенда, Caddyfile, скрипт бэкапа
 ```
 
 ## Правила
@@ -44,4 +46,8 @@ make vet
 make lint     # golangci-lint
 make run      # БД в docker, приложение через go run
 make up       # всё через docker compose
+make prod     # + HTTPS (Caddy) и бэкапы
 ```
+
+Проверка панели без локального Node:
+`docker run --rm -v "$PWD/web":/app -w /app node:22-alpine npm run build`.

@@ -1,4 +1,4 @@
-.PHONY: build run test vet lint fmt tidy db up down logs
+.PHONY: build run test vet lint fmt tidy db up down logs prod backup-now
 
 -include .env
 export
@@ -35,4 +35,11 @@ down:
 	docker compose down
 
 logs:
-	docker compose logs -f app
+	docker compose logs -f app web
+
+# Деплой с HTTPS (Caddy) и ежедневными бэкапами. Нужны DOMAIN и PUBLIC_URL=https://DOMAIN в .env.
+prod:
+	docker compose --profile prod up -d --build
+
+backup-now:
+	mkdir -p backups && docker compose exec -T db pg_dump -U app --no-owner --clean --if-exists expenses | gzip > backups/expenses-manual-$$(date -u +%Y%m%d-%H%M%S).sql.gz
