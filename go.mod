@@ -5,7 +5,9 @@ go 1.25.0
 require (
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/kljensen/snowball v0.10.0
 	github.com/pressly/goose/v3 v3.26.0
+	go.yaml.in/yaml/v3 v3.0.5
 )
 
 require (

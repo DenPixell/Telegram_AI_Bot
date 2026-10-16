@@ -53,8 +53,7 @@ func (s *Server) listExpenses(w http.ResponseWriter, r *http.Request, a domain.A
 		}
 	}
 	if v := strings.TrimSpace(q.Get("q")); v != "" {
-		// TODO(этап 5): расширение синонимами из config/synonyms.yaml.
-		f.Terms = []string{v}
+		f.Terms = s.ExpandTerms(v) // «рестик» найдёт и «ресторан»
 	}
 	for name, dst := range map[string]*int{"limit": &f.Limit, "offset": &f.Offset} {
 		if v := q.Get(name); v != "" {

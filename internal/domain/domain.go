@@ -97,3 +97,14 @@ type Expense struct {
 
 // MaxCommentLen совпадает с CHECK в таблице expenses.
 const MaxCommentLen = 200
+
+// LearnedTerm - слово вне словаря, категория которого найдена онлайн-тезаурусом или LLM.
+// Category "" - слово проверено, но не распознано (отрицательный кэш).
+type LearnedTerm struct {
+	Stem      string
+	Word      string
+	Title     string
+	Category  Category
+	Source    string // "wiktionary" | "llm"
+	UpdatedAt time.Time
+}

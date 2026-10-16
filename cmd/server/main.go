@@ -15,6 +15,7 @@ import (
 
 	"expense-bot/internal/config"
 	"expense-bot/internal/httpapi"
+	"expense-bot/internal/pipeline"
 	"expense-bot/internal/service"
 	"expense-bot/internal/storage/postgres"
 )
@@ -51,6 +52,19 @@ func run() error {
 	}
 	store := postgres.New(pool)
 
+	dict, err := pipeline.LoadDictionary(cfg.Synonyms.Path)
+	if err != nil {
+		return err
+	}
+	var thesaurus pipeline.Thesaurus
+	if cfg.Synonyms.OnlineEnabled {
+		thesaurus = pipeline.NewWiktionary(cfg.Synonyms.OnlineURL, cfg.Synonyms.OnlineTimeout)
+	}
+	categorizer := pipeline.NewCategorizer(dict, store, thesaurus, cfg.Synonyms.OnlineTimeout)
+	// TODO(этап 7-8): analyzer, лимиты и квоты используются ботом и агентом.
+	_ = pipeline.NewAnalyzer(dict, categorizer, cfg.Limits.MaxMessageLen)
+	slog.Info("dictionary loaded", "forms", dict.Size(), "online_thesaurus", cfg.Synonyms.OnlineEnabled)
+
 	families := service.NewFamilies(store, service.FamiliesConfig{
 		MaxMembers:    cfg.Limits.MaxFamilyMembers,
 		InviteTTL:     cfg.Limits.InviteTTL,
@@ -72,6 +86,7 @@ func run() error {
 		PanelFamilyID: cfg.Panel.FamilyID,
 		PublicURL:     cfg.Panel.PublicURL,
 		BotUsername:   botUsername,
+		ExpandTerms:   dict.Expand,
 	})
 	if cfg.Panel.AuthMode == config.PanelAuthNone {
 		slog.Warn("panel authentication is disabled (PANEL_AUTH_MODE=none), use only for local demo")

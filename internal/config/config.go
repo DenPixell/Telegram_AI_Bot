@@ -25,6 +25,8 @@ type Config struct {
 	Fallback LLMFallback
 	Limits   Limits
 
+	Synonyms Synonyms
+
 	AppTZ    string `env:"APP_TZ" envDefault:"Europe/Moscow"`
 	Currency string `env:"CURRENCY" envDefault:"RUB"`
 
@@ -67,10 +69,19 @@ type LLMFallback struct {
 
 func (f LLMFallback) Enabled() bool { return f.BaseURL != "" }
 
+// Synonyms - словарь и онлайн-тезаурус для распознавания категорий.
+type Synonyms struct {
+	Path          string        `env:"SYNONYMS_PATH" envDefault:"config/synonyms.yaml"`
+	OnlineEnabled bool          `env:"THESAURUS_ENABLED" envDefault:"true"`
+	OnlineURL     string        `env:"THESAURUS_URL" envDefault:"https://ru.wiktionary.org/w/api.php"`
+	OnlineTimeout time.Duration `env:"THESAURUS_TIMEOUT" envDefault:"3s"`
+}
+
 type Limits struct {
 	RatePerMin       int           `env:"RATE_LIMIT_PER_MIN" envDefault:"10"`
 	LLMQuotaUser     int           `env:"LLM_DAILY_QUOTA_USER" envDefault:"100"`
 	LLMQuotaFamily   int           `env:"LLM_DAILY_QUOTA_FAMILY" envDefault:"400"`
+	LLMQuotaGlobal   int           `env:"LLM_DAILY_QUOTA_GLOBAL" envDefault:"5000"` // 0 = без глобального лимита
 	MaxMessageLen    int           `env:"MAX_MESSAGE_LEN" envDefault:"300"`
 	MaxFamilyMembers int           `env:"MAX_FAMILY_MEMBERS" envDefault:"10"`
 	InviteTTL        time.Duration `env:"INVITE_TTL" envDefault:"168h"`
@@ -123,10 +134,17 @@ func (c *Config) validate() error {
 	check(l.RatePerMin > 0, "RATE_LIMIT_PER_MIN must be > 0")
 	check(l.LLMQuotaUser > 0, "LLM_DAILY_QUOTA_USER must be > 0")
 	check(l.LLMQuotaFamily > 0, "LLM_DAILY_QUOTA_FAMILY must be > 0")
+	check(l.LLMQuotaGlobal >= 0, "LLM_DAILY_QUOTA_GLOBAL must be >= 0")
 	check(l.MaxMessageLen > 0, "MAX_MESSAGE_LEN must be > 0")
 	check(l.MaxFamilyMembers > 0, "MAX_FAMILY_MEMBERS must be > 0")
 	check(l.InviteTTL > 0, "INVITE_TTL must be > 0")
 	check(l.InviteMaxUses > 0, "INVITE_MAX_USES must be > 0")
+
+	check(c.Synonyms.Path != "", "SYNONYMS_PATH must not be empty")
+	if c.Synonyms.OnlineEnabled {
+		check(isHTTPURL(c.Synonyms.OnlineURL), "THESAURUS_URL must be an http(s) URL, got %q", c.Synonyms.OnlineURL)
+		check(c.Synonyms.OnlineTimeout > 0, "THESAURUS_TIMEOUT must be > 0")
+	}
 
 	if _, err := time.LoadLocation(c.AppTZ); err != nil {
 		errs = append(errs, fmt.Errorf("APP_TZ %q is not a valid IANA zone: %w", c.AppTZ, err))

@@ -31,6 +31,8 @@ type Deps struct {
 	PublicURL     string
 	// BotUsername нужен для ссылок-приглашений; до запуска бота может вернуть "".
 	BotUsername func() string
+	// ExpandTerms расширяет поисковый запрос синонимами из словаря; nil - без расширения.
+	ExpandTerms func(query string) []string
 }
 
 type Server struct {
@@ -48,6 +50,9 @@ func New(d Deps) *Server {
 	}
 	if s.BotUsername == nil {
 		s.BotUsername = func() string { return "" }
+	}
+	if s.ExpandTerms == nil {
+		s.ExpandTerms = func(q string) []string { return []string{q} }
 	}
 	return s
 }
