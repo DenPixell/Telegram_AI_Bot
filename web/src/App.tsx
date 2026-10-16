@@ -53,11 +53,13 @@ function Root({ themeCtl }: { themeCtl: ReturnType<typeof useTheme> }) {
     })();
   }, []);
 
+  // Стабильная ссылка: иначе каждая смена темы перерисовывает Root и заново грузит участников.
+  const logout = useCallback((reason?: "expired" | "lost") => setState({ kind: "login", reason }), []);
   const top = <ThemeMenu settings={themeCtl.settings} theme={themeCtl.theme} onChange={themeCtl.setSettings} />;
 
   if (state.kind === "loading") return <div className="center-screen"><Spinner text={state.text} /></div>;
   if (state.kind === "login") return <Login reason={state.reason} themeButton={top} />;
-  return <Panel me={state.me} themeButton={top} onLogout={(reason) => setState({ kind: "login", reason })} />;
+  return <Panel me={state.me} themeButton={top} onLogout={logout} />;
 }
 
 function Login({ reason, themeButton }: { reason?: "expired" | "forbidden" | "lost"; themeButton: React.ReactNode }) {
