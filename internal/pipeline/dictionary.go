@@ -91,7 +91,8 @@ func ParseDictionary(b []byte) (*Dictionary, error) {
 			errs = append(errs, fmt.Errorf("term %q: unknown category %q", title, def.Category))
 			continue
 		}
-		term := Term{Title: Normalize(title), Category: cat}
+		// Title для показа - как в файле (с «ё»), ключи поиска - нормализованные.
+		term := Term{Title: strings.ToLower(strings.TrimSpace(title)), Category: cat}
 		for _, form := range append([]string{title}, def.Aliases...) {
 			words := wordsOf(Normalize(form))
 			if len(words) == 0 {
@@ -213,6 +214,11 @@ func (d *Dictionary) Expand(query string) []string {
 	out := []string{q}
 	seen[q] = true
 	for _, m := range matches {
+		// Заголовок как хранится в тратах (с «ё»): формы нормализованы и его не покрывают.
+		if !seen[m.Term.Title] {
+			seen[m.Term.Title] = true
+			out = append(out, m.Term.Title)
+		}
 		for _, f := range d.forms[m.Term.Title] {
 			if !seen[f] {
 				seen[f] = true

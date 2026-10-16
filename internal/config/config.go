@@ -57,6 +57,7 @@ type LLM struct {
 	Timeout         time.Duration `env:"LLM_TIMEOUT" envDefault:"15s"`
 	MaxOutputTokens int           `env:"LLM_MAX_OUTPUT_TOKENS" envDefault:"200"`
 	MaxConcurrency  int           `env:"LLM_MAX_CONCURRENCY" envDefault:"4"`
+	ReasoningEffort string        `env:"LLM_REASONING_EFFORT"` // для думающих моделей: none | minimal | low
 	AgentMode       string        `env:"AGENT_MODE" envDefault:"tools"`
 }
 
@@ -65,6 +66,8 @@ type LLMFallback struct {
 	BaseURL string `env:"LLM_FALLBACK_BASE_URL"`
 	APIKey  string `env:"LLM_FALLBACK_API_KEY"`
 	Model   string `env:"LLM_FALLBACK_MODEL"`
+	// ReasoningEffort - отдельно: у запасной модели может не быть reasoning.
+	ReasoningEffort string `env:"LLM_FALLBACK_REASONING_EFFORT"`
 }
 
 func (f LLMFallback) Enabled() bool { return f.BaseURL != "" }

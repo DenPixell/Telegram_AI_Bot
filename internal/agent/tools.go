@@ -183,7 +183,7 @@ func (x *executor) list(ctx context.Context, raw string) (callResult, error) {
 	if err != nil {
 		return callResult{}, err
 	}
-	return callResult{text: renderList(p, from, to, cat, items, total, count, x.today)}, nil
+	return callResult{text: renderList(p, from, to, cat, strings.TrimSpace(args.Query), items, total, count, x.today)}, nil
 }
 
 // ---------- update_expense / delete_expense ----------

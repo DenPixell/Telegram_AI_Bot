@@ -21,6 +21,10 @@ type OpenAIConfig struct {
 	Model     string
 	Timeout   time.Duration // на один HTTP-запрос
 	MaxTokens int           // по умолчанию для Request.MaxTokens = 0
+	// ReasoningEffort для «думающих» моделей (Gemini 3.x, gpt-5, o-серия): "none", "minimal",
+	// "low", ... Без него модель может потратить весь лимит токенов на размышления и не
+	// вызвать инструмент. Пусто - параметр не передаётся (модели без reasoning его отвергают).
+	ReasoningEffort string
 }
 
 type OpenAI struct {
@@ -78,6 +82,8 @@ type oaRequest struct {
 	Tools          []oaTool    `json:"tools,omitempty"`
 	ToolChoice     string      `json:"tool_choice,omitempty"`
 	MaxTokens      int         `json:"max_tokens,omitempty"`
+	MaxCompletion  int         `json:"max_completion_tokens,omitempty"`
+	Reasoning      string      `json:"reasoning_effort,omitempty"`
 	Temperature    *float64    `json:"temperature,omitempty"`
 	ResponseFormat *struct {
 		Type string `json:"type"`
@@ -126,10 +132,12 @@ func (c *OpenAI) Complete(ctx context.Context, req Request) (Response, error) {
 		return Response{}, fmt.Errorf("%s: read response: %w", c.name, err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		msg, code := parseError(raw)
 		return Response{}, &APIError{
 			Provider:   c.name,
 			Status:     resp.StatusCode,
-			Message:    errorMessage(raw),
+			Message:    msg,
+			Code:       code,
 			RetryAfter: retryAfter(resp.Header.Get("Retry-After")),
 		}
 	}
@@ -145,6 +153,11 @@ func (c *OpenAI) Complete(ctx context.Context, req Request) (Response, error) {
 		return Response{}, fmt.Errorf("%s: %w: no choices", c.name, ErrBadResponse)
 	}
 	ch := wire.Choices[0]
+	if ch.FinishReason == "length" && len(ch.Message.ToolCalls) == 0 {
+		// Лимит токенов кончился до ответа (обычно ушёл на размышления): нужен reasoning_effort
+		// или больший LLM_MAX_OUTPUT_TOKENS.
+		return Response{}, fmt.Errorf("%s: %w", c.name, ErrOutputLimit)
+	}
 	msg := Message{Role: RoleAssistant}
 	if ch.Message.Content != nil {
 		msg.Content = *ch.Message.Content
@@ -174,6 +187,12 @@ func (c *OpenAI) toWire(req Request) oaRequest {
 	}
 	if w.MaxTokens == 0 {
 		w.MaxTokens = c.cfg.MaxTokens
+	}
+	w.Reasoning = c.cfg.ReasoningEffort
+	// OpenAI для reasoning-моделей (gpt-5, o-серия) принимает только max_completion_tokens
+	// и температуру по умолчанию; остальные провайдеры ждут max_tokens.
+	if c.openAIReasoning() {
+		w.MaxCompletion, w.MaxTokens, w.Temperature = w.MaxTokens, 0, nil
 	}
 	if req.JSONMode {
 		w.ResponseFormat = &struct {
@@ -206,18 +225,39 @@ func (c *OpenAI) toWire(req Request) oaRequest {
 	return w
 }
 
-// errorMessage достаёт текст ошибки из тела {"error":{"message":...}} или берёт начало тела.
-// Тело может содержать ключ только в виде маски, но на всякий случай обрезается.
-func errorMessage(raw []byte) string {
-	var e struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
+func (c *OpenAI) openAIReasoning() bool {
+	if !strings.Contains(c.cfg.BaseURL, "api.openai.com") {
+		return false
 	}
-	if json.Unmarshal(raw, &e) == nil && e.Error.Message != "" {
-		return truncate(e.Error.Message, 300)
+	m := c.cfg.Model
+	return strings.HasPrefix(m, "gpt-5") || (len(m) > 1 && m[0] == 'o' && m[1] >= '0' && m[1] <= '9')
+}
+
+type wireError struct {
+	Error struct {
+		Message string `json:"message"`
+		Code    any    `json:"code"`
+		Type    string `json:"type"`
+	} `json:"error"`
+}
+
+// parseError достаёт текст и код ошибки из тела. Форматы: {"error":{...}} (OpenAI,
+// OpenRouter) и [{"error":{...}}] (Gemini). Иначе - начало тела, обрезанное.
+func parseError(raw []byte) (msg, code string) {
+	var one wireError
+	var many []wireError
+	switch {
+	case json.Unmarshal(raw, &one) == nil && one.Error.Message != "":
+	case json.Unmarshal(raw, &many) == nil && len(many) > 0 && many[0].Error.Message != "":
+		one = many[0]
+	default:
+		return truncate(strings.TrimSpace(string(raw)), 300), ""
 	}
-	return truncate(strings.TrimSpace(string(raw)), 300)
+	code = one.Error.Type
+	if s, ok := one.Error.Code.(string); ok && s != "" {
+		code = s
+	}
+	return truncate(one.Error.Message, 300), code
 }
 
 // retryAfter разбирает Retry-After в секундах или как HTTP-дату.

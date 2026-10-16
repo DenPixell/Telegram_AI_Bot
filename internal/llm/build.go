@@ -20,12 +20,12 @@ const queueWait = 10 * time.Second
 func New(cfg *config.Config, rec UsageRecorder) Client {
 	chain := []Client{provider(OpenAIConfig{
 		BaseURL: cfg.LLM.BaseURL, APIKey: cfg.LLM.APIKey, Model: cfg.LLM.Model,
-		Timeout: cfg.LLM.Timeout, MaxTokens: cfg.LLM.MaxOutputTokens,
+		Timeout: cfg.LLM.Timeout, MaxTokens: cfg.LLM.MaxOutputTokens, ReasoningEffort: cfg.LLM.ReasoningEffort,
 	}, rec)}
 	if cfg.Fallback.Enabled() {
 		chain = append(chain, provider(OpenAIConfig{
 			BaseURL: cfg.Fallback.BaseURL, APIKey: cfg.Fallback.APIKey, Model: cfg.Fallback.Model,
-			Timeout: cfg.LLM.Timeout, MaxTokens: cfg.LLM.MaxOutputTokens,
+			Timeout: cfg.LLM.Timeout, MaxTokens: cfg.LLM.MaxOutputTokens, ReasoningEffort: cfg.Fallback.ReasoningEffort,
 		}, rec))
 	}
 	return WithConcurrency(WithFallback(chain...), cfg.LLM.MaxConcurrency, queueWait)

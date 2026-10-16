@@ -142,7 +142,7 @@ var periodNames = map[timezone.Period]string{
 // maxListed - сколько трат показывать в ответе; остальное - итогом.
 const maxListed = 10
 
-func renderList(p timezone.Period, from, to domain.Date, cat domain.Category, items []domain.Expense, total domain.Money, count int, today domain.Date) string {
+func renderList(p timezone.Period, from, to domain.Date, cat domain.Category, query string, items []domain.Expense, total domain.Money, count int, today domain.Date) string {
 	when := periodNames[p]
 	if p == timezone.PeriodCustom || when == "" {
 		switch {
@@ -159,6 +159,9 @@ func renderList(p timezone.Period, from, to domain.Date, cat domain.Category, it
 	head := "За " + when
 	if cat != "" {
 		head += " на «" + string(cat) + "»"
+	}
+	if query != "" {
+		head += " по запросу «" + query + "»"
 	}
 	if count == 0 {
 		return head + " трат нет."

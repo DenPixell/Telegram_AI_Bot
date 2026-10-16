@@ -108,8 +108,9 @@ type breaker struct {
 	probing   bool
 }
 
-// WithBreaker исключает провайдера на Cooldown после Failures временных ошибок подряд.
-// Ошибки запроса (400, 401) breaker не считает: это не сбой провайдера.
+// WithBreaker исключает провайдера на Cooldown после Failures ошибок подряд: временных
+// (429, 5xx, таймауты) и неисправности провайдера (ключ, модель, баланс). Ошибки конкретного
+// запроса (400) не считаются.
 func WithBreaker(c Client, cfg BreakerConfig) Client {
 	return &breaker{next: c, cfg: cfg, now: time.Now}
 }
@@ -149,8 +150,8 @@ func (b *breaker) record(ctx context.Context, err error) {
 	defer b.mu.Unlock()
 	wasProbe := b.probing
 	b.probing = false
-	// Успех, ошибка запроса (400, 401) и отмена контекста - не сбой провайдера.
-	if err == nil || !IsRetryable(err) {
+	// Успех, ошибка конкретного запроса (400) и отмена контекста - не сбой провайдера.
+	if err == nil || !countsAsFailure(err) {
 		if b.state != closed {
 			slog.InfoContext(ctx, "llm circuit closed", "provider", b.next.Name())
 		}
