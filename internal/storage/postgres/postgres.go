@@ -1,4 +1,5 @@
-// Package postgres - хранилище на PostgreSQL. Все запросы содержат family_id и, где нужно, user_id.
+// Package postgres - хранилище на PostgreSQL. Все запросы к пользовательским данным содержат
+// family_id и, где нужно, user_id.
 package postgres
 
 import (
@@ -7,17 +8,48 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Store struct {
-	pool *pgxpool.Pool
+// querier - общее у пула и транзакции, чтобы одни и те же методы работали в обоих режимах.
+type querier interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
-func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+type Store struct {
+	pool *pgxpool.Pool
+	q    querier
+}
+
+func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool, q: pool} }
 
 // Ping проверяет доступность БД (для /readyz).
 func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
+
+// WithTx выполняет fn в транзакции: commit при nil, rollback при ошибке или панике.
+// Внутри уже открытой транзакции создаётся savepoint.
+func (s *Store) WithTx(ctx context.Context, fn func(tx *Store) error) error {
+	return pgx.BeginFunc(ctx, s.q, func(tx pgx.Tx) error {
+		return fn(&Store{pool: s.pool, q: tx})
+	})
+}
+
+// LockUser сериализует операции одного пользователя до конца текущей транзакции
+// («удали последнее» и «измени последнее» подряд). Вне транзакции бессмысленен.
+func (s *Store) LockUser(ctx context.Context, userID int64) error {
+	if _, ok := s.q.(pgx.Tx); !ok {
+		return fmt.Errorf("lock user: must be called inside WithTx")
+	}
+	if _, err := s.q.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, userID); err != nil {
+		return fmt.Errorf("lock user: %w", err)
+	}
+	return nil
+}
 
 // Connect создаёт пул и ждёт готовности БД, повторяя попытки до отмены ctx.
 // statement_timeout ограничивает любые тяжёлые запросы.
