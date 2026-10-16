@@ -8,7 +8,7 @@ build:
 
 # Локальный запуск: БД из compose, приложение через go run (DB_DSN с localhost).
 run: db
-	DB_DSN=postgres://app:app@localhost:5432/expenses?sslmode=disable go run ./cmd/server
+	DB_DSN=postgres://app:app@localhost:$${DB_HOST_PORT:-5432}/expenses?sslmode=disable go run ./cmd/server
 
 test:
 	go test -race ./...

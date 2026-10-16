@@ -239,3 +239,46 @@ func cleanText(s string, maxLen int, field string) (string, error) {
 	}
 	return s, nil
 }
+
+// DeleteMyData удаляет все данные пользователя. Владелец семьи с другими участниками
+// должен сначала передать владение (ErrOwnerMustStay); последний участник удаляет семью
+// целиком. Возвращает true, если семья удалена.
+func (f *Families) DeleteMyData(ctx context.Context, userID int64) (familyDeleted bool, err error) {
+	err = f.store.WithTx(ctx, func(tx *postgres.Store) error {
+		if err := tx.LockUser(ctx, userID); err != nil {
+			return err
+		}
+		m, err := tx.GetMembership(ctx, userID)
+		switch {
+		case errors.Is(err, domain.ErrNotFound):
+		case err != nil:
+			return err
+		case m.Role == domain.RoleOwner:
+			n, err := tx.CountMembers(ctx, m.FamilyID)
+			if err != nil {
+				return err
+			}
+			if n > 1 {
+				return domain.ErrOwnerMustStay
+			}
+			if err := tx.DeleteFamily(ctx, m.FamilyID); err != nil {
+				return err
+			}
+			familyDeleted = true
+		}
+		return tx.DeleteUserData(ctx, userID)
+	})
+	if err != nil {
+		return false, fmt.Errorf("delete my data: %w", err)
+	}
+	return familyDeleted, nil
+}
+
+// MemberCount - число участников семьи actor (для подтверждения выхода).
+func (f *Families) MemberCount(ctx context.Context, a domain.Actor) (int, error) {
+	n, err := f.store.CountMembers(ctx, a.FamilyID)
+	if err != nil {
+		return 0, fmt.Errorf("member count: %w", err)
+	}
+	return n, nil
+}

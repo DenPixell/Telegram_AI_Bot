@@ -13,7 +13,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:5432:5432" # для локального go run, наружу не открыт
+      - "127.0.0.1:${DB_HOST_PORT:-5432}:5432" # для локального go run, наружу не открыт
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d expenses"]
       interval: 5s
