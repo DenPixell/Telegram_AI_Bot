@@ -46,7 +46,7 @@ func (g Guess) Found() bool { return g.Source != SourceNone }
 // Categorizer - гибридное распознавание категории:
 //  1. словарь config/synonyms.yaml (по основам слов);
 //  2. кэш выученных слов в БД;
-//  3. онлайн-тезаурус (гиперонимы и синонимы из Викисловаря), результат кэшируется;
+//  3. онлайн-тезаурус (голосование гиперонимов и синонимов из Викисловаря), результат кэшируется;
 //  4. не нашли - SourceNone, решение за LLM (после фильтра запретов).
 type Categorizer struct {
 	dict    *Dictionary
@@ -147,8 +147,8 @@ func (c *Categorizer) unknownWords(words []string) []string {
 	return out
 }
 
-// fromThesaurus: статья слова -> её гиперонимы и синонимы -> словарь; если не нашли,
-// ещё один шаг через гиперонимы гиперонимов («латте» -> «напиток» -> еда).
+// fromThesaurus: статья слова -> голосование её гиперонимов и синонимов по словарю; если
+// решения нет, ещё один шаг через незнакомые гиперонимы («латте» -> «напиток» -> еда).
 func (c *Categorizer) fromThesaurus(ctx context.Context, word string) (Guess, bool) {
 	if c.thes == nil || !c.breaker.allow(c.now()) {
 		return Guess{}, false
@@ -171,31 +171,32 @@ func (c *Categorizer) fromThesaurus(ctx context.Context, word string) (Guess, bo
 	}
 	c.breaker.success()
 
-	lemma, related := "", []string(nil)
+	lemma, rel := "", Related{}
 	for _, cand := range cands {
-		if rel, ok := pages[cand]; ok {
-			lemma, related = cand, rel
+		if r, ok := pages[cand]; ok {
+			lemma, rel = cand, r
 			break
 		}
 	}
-	// Название - начальная форма найденного слова («пельмень»), категория - от гиперонима.
-	named := func(g Guess) Guess {
-		if lemma != "" {
-			g.Term.Title = lemma
-		}
-		return g
+	if lemma == "" {
+		lemma = word
 	}
-	if g, ok := c.matchRelated(related); ok {
-		g = named(g)
+	found := func(cat domain.Category) (Guess, bool) {
+		g := Guess{Term: Term{Title: lemma, Category: cat}, Source: SourceOnline}
 		c.save(ctx, word, g.Term)
 		return g, true
 	}
+	v := c.newVote()
+	v.add(rel)
+	if cat, ok := v.winner(); ok {
+		return found(cat)
+	}
 
-	// Второй шаг: незнакомые связанные слова одним запросом.
+	// Второй шаг: незнакомые гиперонимы одним запросом, их голоса добавляются к первым.
 	var next []string
-	for _, r := range related {
-		if _, known := c.dict.LookupWord(r); !known {
-			next = append(next, r)
+	for _, h := range rel.Hypernyms {
+		if _, known := c.dict.LookupWord(h); !known {
+			next = append(next, h)
 			if len(next) == maxHypernymHops {
 				break
 			}
@@ -209,28 +210,58 @@ func (c *Categorizer) fromThesaurus(ctx context.Context, word string) (Guess, bo
 			return Guess{}, false
 		}
 		for _, n := range next {
-			if g, ok := c.matchRelated(pages[n]); ok {
-				g = named(g)
-				c.save(ctx, word, g.Term)
-				return g, true
-			}
+			v.add(Related{Hypernyms: pages[n].Hypernyms}) // синонимы второго уровня слишком далеки
+		}
+		if cat, ok := v.winner(); ok {
+			return found(cat)
 		}
 	}
 	// Слово проверено и не распознано: отрицательный кэш, чтобы не ходить в сеть повторно.
-	if lemma == "" {
-		lemma = word
-	}
 	c.save(ctx, word, Term{Title: lemma})
 	return Guess{}, false
 }
 
-func (c *Categorizer) matchRelated(related []string) (Guess, bool) {
-	for _, r := range related {
-		if t, ok := c.dict.LookupWord(r); ok {
-			return Guess{Term: t, Source: SourceOnline}, true
+// Голосование: гипероним, найденный в словаре, весит 2, синоним - 1. Категория принимается,
+// если набрала не меньше minVotes и строго больше любой другой. Один случайный синоним
+// многозначного слова не решает ничего - тогда решает LLM.
+const (
+	hypernymWeight = 2
+	synonymWeight  = 1
+	minVotes       = 2
+)
+
+type vote struct {
+	dict   *Dictionary
+	scores map[domain.Category]int
+}
+
+func (c *Categorizer) newVote() *vote { return &vote{dict: c.dict, scores: map[domain.Category]int{}} }
+
+func (v *vote) add(r Related) {
+	for _, w := range r.Hypernyms {
+		if t, ok := v.dict.LookupWord(w); ok {
+			v.scores[t.Category] += hypernymWeight
 		}
 	}
-	return Guess{}, false
+	for _, w := range r.Synonyms {
+		if t, ok := v.dict.LookupWord(w); ok {
+			v.scores[t.Category] += synonymWeight
+		}
+	}
+}
+
+func (v *vote) winner() (domain.Category, bool) {
+	var best domain.Category
+	bestScore, second := 0, 0
+	for cat, s := range v.scores {
+		switch {
+		case s > bestScore:
+			best, bestScore, second = cat, s, bestScore
+		case s > second:
+			second = s
+		}
+	}
+	return best, bestScore >= minVotes && bestScore > second
 }
 
 func (c *Categorizer) save(ctx context.Context, word string, t Term) {

@@ -154,8 +154,8 @@ func (a *Analyzer) titleWords(toks []token, amt *Amount, dateIdx int) []string {
 		if t.kind != tokWord || i == dateIdx || (amt != nil && i >= amt.first && i <= amt.last) {
 			continue
 		}
-		if weekdayOrRelative(t.text) {
-			continue
+		if weekdayOrRelative(t.text) || (i == dateIdx+1 && months[t.text] != 0) {
+			continue // «вчера», «в пятницу», месяц в «5 марта»
 		}
 		out = append(out, t.text)
 	}

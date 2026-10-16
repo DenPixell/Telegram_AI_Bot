@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,26 @@ var weekdays = map[string]time.Weekday{
 	"понедельник": time.Monday, "вторник": time.Tuesday, "среда": time.Wednesday, "среду": time.Wednesday,
 	"четверг": time.Thursday, "пятница": time.Friday, "пятницу": time.Friday,
 	"суббота": time.Saturday, "субботу": time.Saturday, "воскресенье": time.Sunday,
+}
+
+// months - родительный падеж: «5 марта», «1 мая».
+var months = map[string]time.Month{
+	"января": time.January, "февраля": time.February, "марта": time.March, "апреля": time.April,
+	"мая": time.May, "июня": time.June, "июля": time.July, "августа": time.August,
+	"сентября": time.September, "октября": time.October, "ноября": time.November, "декабря": time.December,
+}
+
+// dayOfMonth: токен i - число 1..31, за ним название месяца («5 марта»).
+func dayOfMonth(toks []token, i int) (int, time.Month, bool) {
+	if i+1 >= len(toks) || toks[i].kind != tokNumber || !isDigits(toks[i].text) {
+		return 0, 0, false
+	}
+	m, ok := months[toks[i+1].text]
+	d, err := strconv.Atoi(toks[i].text)
+	if !ok || err != nil || d < 1 || d > 31 {
+		return 0, 0, false
+	}
+	return d, m, true
 }
 
 // findDate ищет указание даты и возвращает дату относительно today и индекс токена.
@@ -36,6 +57,11 @@ func findDate(toks []token, today domain.Date, skip []Amount) (domain.Date, int,
 				return today.AddDays(-back), i, true
 			}
 		case tokNumber:
+			if day, month, ok := dayOfMonth(toks, i); ok {
+				if d, ok := parseDayMonth(fmt.Sprintf("%d.%d", day, month), today); ok {
+					return d, i, true
+				}
+			}
 			if d, ok := parseDayMonth(t.text, today); ok {
 				return d, i, true
 			}
@@ -77,4 +103,12 @@ func inAmount(i int, amounts []Amount) bool {
 		}
 	}
 	return false
+}
+
+// FindDate - указание даты в тексте («вчера», «в пятницу», «12.10») относительно today.
+// Агент подставляет её, если модель не передала дату сама.
+func FindDate(text string, today domain.Date) (domain.Date, bool) {
+	toks := tokenize(Normalize(text))
+	d, _, ok := findDate(toks, today, parseAmounts(toks))
+	return d, ok
 }

@@ -41,6 +41,10 @@ func parseAmounts(toks []token) []Amount {
 		}
 		first := i
 		num := t.text
+		if _, _, ok := dayOfMonth(toks, i); ok {
+			i++ // «5 марта» - дата, не сумма
+			continue
+		}
 		// Разряды через пробел: «1 200», «10 000 000». Первая группа до трёх цифр, дальше по три.
 		if len(num) <= 3 && isDigits(num) {
 			for i+1 < len(toks) && toks[i+1].kind == tokNumber && len(toks[i+1].text) == 3 && isDigits(toks[i+1].text) {

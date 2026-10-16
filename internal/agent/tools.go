@@ -38,6 +38,7 @@ type executor struct {
 	norm    string
 	today   domain.Date
 	amounts []domain.Money // суммы, найденные в сообщении кодом на Go
+	date    domain.Date    // дата, найденная в сообщении кодом на Go; нулевая - нет
 	added   []domain.Expense
 }
 
@@ -89,6 +90,10 @@ func (x *executor) add(ctx context.Context, raw string) (callResult, error) {
 	date, err := optDate(args.Date)
 	if err != nil {
 		return callResult{feedback: "date: " + err.Error()}, nil
+	}
+	if date.IsZero() {
+		// Модель не передала дату, а в тексте она есть («я потратил вчера 550 на шавуху»).
+		date = x.date
 	}
 	e := domain.Expense{
 		Amount:   amount,

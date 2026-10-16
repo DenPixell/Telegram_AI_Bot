@@ -160,6 +160,10 @@ func (d *Dictionary) Lookup(words []string) []Match {
 	for i := 0; i < len(words); {
 		found := false
 		for n := min(d.maxPhrase, len(words)-i); n >= 1; n-- {
+			// Служебное слово само по себе не термин: основа «купили» совпадает с «купе».
+			if n == 1 && d.fillers[words[i]] {
+				continue
+			}
 			if t, ok := d.phrases[strings.Join(stems[i:i+n], " ")]; ok {
 				res = append(res, Match{Term: t, Start: i, End: i + n})
 				i += n
@@ -169,14 +173,15 @@ func (d *Dictionary) Lookup(words []string) []Match {
 		}
 		if !found {
 			// Уменьшительные формы: «мандаринчики» -> «мандарин», «кофеечек» -> «кофе».
-			for _, v := range diminutiveStems(stems[i]) {
-				if t, ok := d.phrases[v]; ok {
-					res = append(res, Match{Term: t, Start: i, End: i + 1})
-					found = true
-					break
+			if !d.fillers[words[i]] {
+				for _, v := range diminutiveStems(stems[i]) {
+					if t, ok := d.phrases[v]; ok {
+						res = append(res, Match{Term: t, Start: i, End: i + 1})
+						break
+					}
 				}
 			}
-			i++
+			i++ // позиция сдвигается всегда, иначе служебное слово зациклит поиск
 		}
 	}
 	return res

@@ -12,10 +12,17 @@ import (
 	"time"
 )
 
+// Related - связанные слова статьи. Гиперонимы надёжнее: синонимы многозначных слов
+// уводят в сторону («день» -> «свет» -> электричество).
+type Related struct {
+	Hypernyms []string
+	Synonyms  []string
+}
+
 // Thesaurus - онлайн-источник связанных слов. Lookup принимает точные заголовки статей
-// и возвращает для существующих связанные слова: сначала гиперонимы, затем синонимы.
+// и возвращает связанные слова для существующих.
 type Thesaurus interface {
-	Lookup(ctx context.Context, titles []string) (map[string][]string, error)
+	Lookup(ctx context.Context, titles []string) (map[string]Related, error)
 }
 
 // DefaultWiktionaryURL - API русского Викисловаря (бесплатно, без ключа).
@@ -65,7 +72,7 @@ type wikiResponse struct {
 }
 
 // Lookup делает один запрос на все заголовки (до 50 по ограничению API).
-func (w *Wiktionary) Lookup(ctx context.Context, titles []string) (map[string][]string, error) {
+func (w *Wiktionary) Lookup(ctx context.Context, titles []string) (map[string]Related, error) {
 	if len(titles) == 0 {
 		return nil, nil
 	}
@@ -107,7 +114,7 @@ func (w *Wiktionary) Lookup(ctx context.Context, titles []string) (map[string][]
 			alias[r.To] = orig
 		}
 	}
-	res := map[string][]string{}
+	res := map[string]Related{}
 	for _, p := range wr.Query.Pages {
 		if p.Missing || len(p.Revisions) == 0 {
 			continue
@@ -127,7 +134,7 @@ var (
 )
 
 // relatedFromWikitext извлекает ссылки из разделов «Гиперонимы» и «Синонимы» русской секции.
-func relatedFromWikitext(text string) []string {
+func relatedFromWikitext(text string) Related {
 	if i := strings.Index(text, "{{-ru-}}"); i >= 0 {
 		text = text[i:]
 		// Следующая языковая секция: «= {{-en-}} =».
@@ -159,9 +166,13 @@ func relatedFromWikitext(text string) []string {
 			}
 		}
 	}
+	return Related{Hypernyms: uniq(hyper), Synonyms: uniq(syn)}
+}
+
+func uniq(ws []string) []string {
 	seen := map[string]bool{}
 	var out []string
-	for _, w := range append(hyper, syn...) {
+	for _, w := range ws {
 		if !seen[w] {
 			seen[w] = true
 			out = append(out, w)

@@ -218,6 +218,7 @@ func (a *Agent) runLLM(ctx context.Context, actor domain.Actor, text string, d p
 	req.Messages = append(req.Messages, llm.Message{Role: llm.RoleUser, Content: text})
 
 	ex := &executor{a: a, actor: actor, text: text, norm: norm, today: today, amounts: pipeline.ParseAmounts(text)}
+	ex.date, _ = pipeline.FindDate(text, today)
 	var replies []string
 	for step := 1; step <= maxSteps; step++ {
 		resp, err := a.llm.Complete(ctx, req)
