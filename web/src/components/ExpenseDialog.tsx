@@ -12,7 +12,7 @@ export function ExpenseDialog({ expense, members, meID, onClose, onSaved }: {
   const isNew = expense === null;
   const [amount, setAmount] = useState(expense ? String(Number(expense.amount)).replace(".", ",") : "");
   const [category, setCategory] = useState(expense?.category ?? "еда");
-  const [date, setDate] = useState(expense?.date ?? todayISO());
+  const [date, setDate] = useState(expense?.spent_at ?? todayISO());
   const [title, setTitle] = useState(expense?.title ?? "");
   const [comment, setComment] = useState(expense?.comment ?? "");
   const [userID, setUserID] = useState(expense?.user_id ?? meID);
@@ -30,7 +30,7 @@ export function ExpenseDialog({ expense, members, meID, onClose, onSaved }: {
     if (!parsed) return;
     setBusy(true);
     setError("");
-    const input = { user_id: userID, amount: parsed, category, date, title: title.trim(), comment: comment.trim() };
+    const input = { user_id: userID, amount: parsed, category, spent_at: date, title: title.trim(), comment: comment.trim() };
     try {
       if (isNew) await api.createExpense(input);
       else await api.updateExpense(expense.id, expense.version, input);

@@ -374,3 +374,21 @@ func dedupe(ss []string) []string {
 	}
 	return out
 }
+
+// LooksLikeExpense - сообщение похоже на трату с суммой («кофе 350»), а не на вопрос или
+// отказ. Нужно до регистрации: такую трату запоминают и записывают после неё.
+func (a *Agent) LooksLikeExpense(ctx context.Context, userID int64, text string) bool {
+	today, err := a.expenses.Today(ctx, userID)
+	if err != nil {
+		return false
+	}
+	d := a.analyzer.Analyze(ctx, text, today)
+	switch d.Verdict {
+	case pipeline.VerdictExpense:
+		return true
+	case pipeline.VerdictAgent:
+		// Без слов действия («сколько», «удали») и с суммой: «кофе 350 и обед 600», «фигнюшка 500».
+		return d.Action == "" && len(pipeline.ParseAmounts(text)) > 0
+	}
+	return false
+}

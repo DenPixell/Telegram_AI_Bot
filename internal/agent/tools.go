@@ -235,6 +235,14 @@ func (x *executor) change(ctx context.Context, action, raw string) (callResult, 
 	if err != nil {
 		return callResult{}, err
 	}
+	// «последнее было не 350, а 450»: старая сумма из фразы должна совпасть с целью.
+	// Иначе правится не та трата (последней может быть «такси 1200»).
+	if old, ok := x.oldAmount(changes); ok {
+		var res callResult
+		if candidates, res, err = x.matchOldAmount(ctx, candidates, old); err != nil || res.text != "" {
+			return res, err
+		}
+	}
 	switch len(candidates) {
 	case 0:
 		return callResult{text: msgNothingFound}, nil
@@ -255,6 +263,57 @@ func (x *executor) change(ctx context.Context, action, raw string) (callResult, 
 }
 
 var errBadTarget = errors.New("target")
+
+// recentForMatch - сколько последних трат просматривать в поиске по старой сумме.
+const recentForMatch = 30
+
+// oldAmount: в сообщении ровно две суммы и новая - одна из них, значит вторая - старая
+// («не 350, а 450»). Если старой суммы в сообщении нет, сверять не с чем.
+func (x *executor) oldAmount(u updateArgs) (domain.Money, bool) {
+	if u.Amount == nil || len(x.amounts) != 2 {
+		return 0, false
+	}
+	switch *u.Amount {
+	case x.amounts[0]:
+		return x.amounts[1], x.amounts[1] != x.amounts[0]
+	case x.amounts[1]:
+		return x.amounts[0], true
+	}
+	return 0, false
+}
+
+// matchOldAmount оставляет кандидатов с названной старой суммой. Если среди найденных её нет,
+// ищет среди последних трат пользователя; не нашёл - объясняет, а не правит наугад.
+func (x *executor) matchOldAmount(ctx context.Context, candidates []domain.Expense, old domain.Money) ([]domain.Expense, callResult, error) {
+	withAmount := func(items []domain.Expense) []domain.Expense {
+		var out []domain.Expense
+		for _, e := range items {
+			if e.Amount == old {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	if m := withAmount(candidates); len(m) > 0 {
+		return m, callResult{}, nil
+	}
+	recent, _, _, err := x.a.expenses.List(ctx, domain.ExpenseFilter{Scope: domain.ScopeOf(x.actor), Limit: recentForMatch})
+	if err != nil {
+		return nil, callResult{}, err
+	}
+	if m := withAmount(recent); len(m) > 0 {
+		if len(m) > maxCandidates {
+			m = m[:maxCandidates]
+		}
+		return m, callResult{}, nil
+	}
+	text := fmt.Sprintf("Не нашёл трату на %s.", money(old))
+	if len(candidates) == 1 {
+		text = fmt.Sprintf("Последняя трата — %s, а не %s, и трату на %s я не нашёл.",
+			line(candidates[0], x.today), money(old), money(old))
+	}
+	return nil, callResult{text: text + " Уточните, какую исправить, например: «кофе было не 350, а 450»."}, nil
+}
 
 // resolve находит кандидатов только среди трат самого пользователя (UserScope):
 // модель не оперирует идентификаторами вообще.

@@ -346,7 +346,7 @@ components:
         user_id: { type: integer, format: int64, description: Telegram ID владельца траты }
         amount: { $ref: "#/components/schemas/Money" }
         category: { $ref: "#/components/schemas/Category" }
-        date: { type: string, format: date }
+        spent_at: { type: string, format: date }
         title: { type: string, description: Каноническое название из словаря, example: ресторан }
         comment: { type: string, description: Как написал пользователь }
         version: { type: integer }
@@ -400,18 +400,18 @@ components:
         user_id: { type: integer, format: int64, description: "Член семьи; 0 или нет поля - сам владелец" }
         amount: { $ref: "#/components/schemas/Money" }
         category: { $ref: "#/components/schemas/Category" }
-        date: { type: string, format: date, description: По умолчанию сегодня в поясе участника }
+        spent_at: { type: string, format: date, description: По умолчанию сегодня в поясе участника }
         title: { type: string, maxLength: 64 }
         comment: { type: string, maxLength: 200 }
     ExpenseUpdate:
       type: object
-      required: [version, amount, category, date]
+      required: [version, amount, category, spent_at]
       additionalProperties: false
       properties:
         version: { type: integer, description: Из последнего ответа; при несовпадении 409 }
         amount: { $ref: "#/components/schemas/Money" }
         category: { $ref: "#/components/schemas/Category" }
-        date: { type: string, format: date }
+        spent_at: { type: string, format: date }
         title: { type: string, maxLength: 64 }
         comment: { type: string, maxLength: 200 }
     Member:

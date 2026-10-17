@@ -282,3 +282,30 @@ func TestRequestShape(t *testing.T) {
 		assert.NotContains(t, string(tool.Parameters), "family_id")
 	}
 }
+
+// Регрессия из проверки по ТЗ: «последнее было не 350, а 450», а последней добавлена
+// другая трата (такси 1200) - править нужно трату на 350, а не такси.
+func TestUpdateLastMatchesOldAmount(t *testing.T) {
+	w := newWorld(t)
+	w.say(w.anya, "кофе 350", false)
+	w.say(w.anya, "такси 1200 вчера", false)
+	w.fake.ReplyTools(llm.FakeCall{Name: "update_expense", Args: map[string]any{"target": "last", "amount": "450"}})
+	reply := w.say(w.anya, "последнее было не 350, а 450", true)
+	assert.Contains(t, reply, "кофе — 450 ₽")
+	assert.Contains(t, reply, "350 ₽ → 450 ₽")
+	for _, e := range w.expensesOf(w.anya) {
+		if e.Title == "такси" {
+			assert.Equal(t, domain.Money(120000), e.Amount, "такси не тронуто")
+		}
+	}
+}
+
+func TestUpdateLastWithUnknownOldAmountAsks(t *testing.T) {
+	w := newWorld(t)
+	w.say(w.anya, "такси 1200", false)
+	w.fake.ReplyTools(llm.FakeCall{Name: "update_expense", Args: map[string]any{"target": "last", "amount": "450"}})
+	reply := w.say(w.anya, "последнее было не 350, а 450", true)
+	assert.Contains(t, reply, "Последняя трата — такси — 1 200 ₽")
+	assert.Contains(t, reply, "не нашёл")
+	assert.Equal(t, domain.Money(120000), w.expensesOf(w.anya)[0].Amount, "ничего не изменено наугад")
+}

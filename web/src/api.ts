@@ -4,7 +4,7 @@
 export interface Family { id: number; name: string; timezone: string; created_at: string }
 export interface Me { user_id: number; role: "owner"; family: Family; csrf_token?: string; auth_mode: "magic_link" | "none" }
 export interface Expense {
-  id: number; user_id: number; amount: string; category: string; date: string;
+  id: number; user_id: number; amount: string; category: string; spent_at: string;
   title: string; comment: string; version: number; created_at: string; updated_at: string;
 }
 export interface ExpenseList { items: Expense[]; total: string; count: number; limit: number; offset: number }
@@ -21,7 +21,7 @@ export interface Filter {
   member_id?: number; from?: string; to?: string; categories?: string[]; q?: string; limit?: number; offset?: number;
 }
 
-export interface ExpenseInput { user_id?: number; amount: string; category: string; date: string; title: string; comment: string }
+export interface ExpenseInput { user_id?: number; amount: string; category: string; spent_at: string; title: string; comment: string }
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) {

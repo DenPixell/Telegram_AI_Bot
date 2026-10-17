@@ -179,3 +179,30 @@ func TestStartForActiveUser(t *testing.T) {
 	r := f.start(1, "")
 	assert.Contains(t, r.Text, "С возвращением")
 }
+
+func TestPendingExpenseSurvivesOnboarding(t *testing.T) {
+	f := newFlow(t)
+	r, err := f.fsm.Remember(ctx, f.user(1), "кофе 350")
+	require.NoError(t, err)
+	assert.Contains(t, r.Text, "Запишу «кофе 350»")
+	assert.NotEmpty(t, r.Buttons, "сразу выбор: создать семью или ввести код")
+	assert.Equal(t, domain.StateAwaitingChoice, f.state(1))
+
+	f.text(1, "создать")
+	f.text(1, "Ивановы")
+	assert.Contains(t, f.text(1, "абракадабра").Text, "Не узнал", "неудачный пояс не теряет трату")
+	r = f.text(1, "Москва")
+	assert.Equal(t, "кофе 350", r.Pending, "после регистрации трату надо записать")
+	assert.JSONEq(t, `{}`, string(f.user(1).StateData), "после записи отложенная трата не хранится")
+}
+
+func TestPendingExpenseAfterJoin(t *testing.T) {
+	f := newFlow(t)
+	code := f.createFamily(1, "Ивановы", "Москва")
+	_, err := f.fsm.Remember(ctx, f.user(2), "такси 1200 вчера")
+	require.NoError(t, err)
+	f.start(2, code)
+	r, err := f.fsm.HandleLocation(ctx, f.user(2), 55.75, 37.6)
+	require.NoError(t, err)
+	assert.Equal(t, "такси 1200 вчера", r.Pending)
+}

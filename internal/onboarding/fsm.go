@@ -33,7 +33,10 @@ type Reply struct {
 	Text            string
 	Buttons         [][]Button
 	RequestLocation bool // клавиатура «📍 Отправить геолокацию» + «Пропустить»
-	RemoveKeyboard  bool
+	// Pending - трата, которую человек прислал до регистрации; после её завершения её нужно
+	// записать (адаптер передаёт текст агенту).
+	Pending        string
+	RemoveKeyboard bool
 }
 
 // Данные кнопок.
@@ -57,7 +60,8 @@ func New(store *postgres.Store, families *service.Families, appTZ string, invite
 }
 
 type stateData struct {
-	TZAttempts int `json:"tz_attempts,omitempty"`
+	TZAttempts int    `json:"tz_attempts,omitempty"`
+	Pending    string `json:"pending,omitempty"` // трата из первого сообщения, переживает рестарт
 }
 
 // Start - команда /start с необязательным кодом из deep link. Работает в любом состоянии.
@@ -252,11 +256,13 @@ func (f *FSM) finish(ctx context.Context, userID int64, z timezone.Zone) (Reply,
 	} else {
 		z = zoneOrUTC(fam.DefaultTZ, f.appTZ)
 	}
-	if err := f.setState(ctx, userID, domain.StateActive, stateData{}); err != nil {
+	pending := f.pending(ctx, userID)
+	// Активное состояние - с чистыми данными: отложенная трата уходит в ответ, а не остаётся.
+	if err := f.store.SetUserState(ctx, userID, domain.StateActive, nil); err != nil {
 		return Reply{}, err
 	}
 	text := "Готово! Часовой пояс: " + z.Describe(f.now()) + ".\n\n" + Help(a.IsOwner())
-	return Reply{Text: text, RemoveKeyboard: true}, nil
+	return Reply{Text: text, RemoveKeyboard: true, Pending: pending}, nil
 }
 
 func (f *FSM) askTZ(ctx context.Context, userID int64, head string) (Reply, error) {
@@ -288,7 +294,38 @@ func (f *FSM) family(ctx context.Context, userID int64) (domain.Family, bool, er
 	return fam, err == nil, err
 }
 
+// Remember запоминает трату, присланную до регистрации («кофе 350» первым сообщением),
+// и показывает выбор семьи. Трата будет записана сразу после регистрации.
+func (f *FSM) Remember(ctx context.Context, u domain.User, text string) (Reply, error) {
+	state := u.State
+	if state == domain.StateNew {
+		state = domain.StateAwaitingChoice
+	}
+	if err := f.setState(ctx, u.TelegramID, state, stateData{Pending: text}); err != nil {
+		return Reply{}, err
+	}
+	r := welcome()
+	r.Text = fmt.Sprintf("Запишу «%s», как только вы создадите семью или вступите в неё — это займёт минуту.\n\n", text) + r.Text
+	return r, nil
+}
+
+// pending - отложенная трата пользователя, если есть.
+func (f *FSM) pending(ctx context.Context, userID int64) string {
+	u, err := f.store.GetUser(ctx, userID)
+	if err != nil {
+		return ""
+	}
+	var sd stateData
+	_ = json.Unmarshal(u.StateData, &sd)
+	return sd.Pending
+}
+
+// setState сохраняет шаг онбординга. Отложенная трата переносится между шагами,
+// пока её явно не заменят.
 func (f *FSM) setState(ctx context.Context, userID int64, s domain.UserState, sd stateData) error {
+	if sd.Pending == "" {
+		sd.Pending = f.pending(ctx, userID)
+	}
 	b, err := json.Marshal(sd)
 	if err != nil {
 		return err

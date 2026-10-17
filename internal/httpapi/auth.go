@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"crypto/subtle"
+	"errors"
 	"net/http"
 
 	"expense-bot/internal/config"
@@ -31,6 +32,10 @@ func (s *Server) authed(h actorHandler) http.Handler {
 		)
 		if s.AuthMode == config.PanelAuthNone {
 			a, err = service.PanelOwner(r.Context(), s.Store, s.PanelFamilyID)
+			if err != nil {
+				s.writePanelSetupError(w, r, err)
+				return
+			}
 		} else {
 			a, err = s.Auth.SessionActor(r.Context(), sessionID(r))
 		}
@@ -144,4 +149,22 @@ func (s *Server) writeMe(w http.ResponseWriter, r *http.Request, a domain.Actor,
 		CSRFToken: csrf,
 		AuthMode:  s.AuthMode,
 	})
+}
+
+// writePanelSetupError - в режиме без авторизации панели не к кому привязаться: семьи ещё нет
+// или их несколько. Это не ошибка входа, а шаг настройки - отдельный код для понятного экрана.
+func (s *Server) writePanelSetupError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, domain.ErrNotFound) && s.PanelFamilyID != 0:
+		writeAPIError(w, http.StatusConflict, "no_family",
+			"Семья из PANEL_FAMILY_ID не найдена. Проверьте значение или уберите его, если семья одна.")
+	case errors.Is(err, domain.ErrNotFound):
+		writeAPIError(w, http.StatusConflict, "no_family",
+			"Семьи пока нет. Напишите боту /start и создайте семью — панель сразу покажет её траты.")
+	case errors.Is(err, domain.ErrConflict):
+		writeAPIError(w, http.StatusConflict, "many_families",
+			"Семей несколько, а панель без входа показывает одну. Укажите PANEL_FAMILY_ID или включите вход по ссылке (PANEL_AUTH_MODE=magic_link).")
+	default:
+		writeError(w, r, err)
+	}
 }

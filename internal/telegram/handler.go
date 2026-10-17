@@ -47,12 +47,13 @@ type HandlerDeps struct {
 // user_id всегда из апдейта Telegram, а не из текста.
 type Handler struct {
 	HandlerDeps
-	mu     sync.Mutex
-	warned map[int64]time.Time // когда пользователю последний раз писали о rate limit
+	mu       sync.Mutex
+	warned   map[int64]time.Time // когда пользователю последний раз писали о rate limit
+	confirms map[int64]pendingConfirm
 }
 
 func NewHandler(d HandlerDeps) *Handler {
-	return &Handler{HandlerDeps: d, warned: map[int64]time.Time{}}
+	return &Handler{HandlerDeps: d, warned: map[int64]time.Time{}, confirms: map[int64]pendingConfirm{}}
 }
 
 // Данные служебных кнопок.
@@ -153,9 +154,16 @@ func (h *Handler) message(ctx context.Context, m *Message) error {
 		}
 	}
 	if u.State != domain.StateActive {
+		// «кофе 350» первым сообщением: запоминаем и запишем после регистрации, а не теряем.
+		if h.rememberable(ctx, u, text) {
+			return h.reply(ctx, m.Chat.ID)(h.FSM.Remember(ctx, u, text))
+		}
 		return h.reply(ctx, m.Chat.ID)(h.FSM.HandleText(ctx, u, text))
 	}
 
+	if handled, err := h.confirmByText(ctx, m.Chat.ID, u, text); handled || err != nil {
+		return err
+	}
 	if in, ok := pipeline.MatchIntent(text); ok {
 		return h.intent(ctx, m.Chat.ID, u, actor, in)
 	}
@@ -228,7 +236,8 @@ func (h *Handler) intent(ctx context.Context, chatID int64, u domain.User, a dom
 		case a.IsOwner():
 			text = "Вы единственный участник: семья и все её траты будут удалены. Выйти?"
 		}
-		return send(text, confirm("Да, выйти", cbLeave))
+		h.askConfirm(u.TelegramID, cbLeave)
+		return send(text+" Ответьте «да» или «нет».", confirm("Да, выйти", cbLeave))
 
 	case pipeline.IntentDeleteData:
 		if n, err := h.Families.MemberCount(ctx, a); err != nil {
@@ -236,7 +245,8 @@ func (h *Handler) intent(ctx context.Context, chatID int64, u domain.User, a dom
 		} else if a.IsOwner() && n > 1 {
 			return send(msgOwnerStays, nil)
 		}
-		return send("Удалить все ваши данные: траты, участие в семье и профиль? Это необратимо.", confirm("Да, удалить", cbDelete))
+		h.askConfirm(u.TelegramID, cbDelete)
+		return send("Удалить все ваши данные: траты, участие в семье и профиль? Это необратимо. Ответьте «да» или «нет».", confirm("Да, удалить", cbDelete))
 	}
 	return nil
 }
@@ -258,39 +268,14 @@ func (h *Handler) callback(ctx context.Context, cq *CallbackQuery) error {
 	}
 	switch cq.Data {
 	case cbCancel:
+		h.takeConfirm(u.TelegramID)
 		return h.Sender.Send(ctx, chatID, "Хорошо, ничего не меняю.", nil)
 	case cbLeave:
-		a, err := h.Families.Actor(ctx, u.TelegramID)
-		if errors.Is(err, domain.ErrNotInFamily) {
-			return h.sendReply(ctx, chatID, onboarding.Welcome())
-		}
-		if err != nil {
-			return err
-		}
-		deleted, err := h.Families.Leave(ctx, a)
-		if errors.Is(err, domain.ErrOwnerMustStay) {
-			return h.Sender.Send(ctx, chatID, msgOwnerStays, nil)
-		}
-		if err != nil {
-			return err
-		}
-		text := "Вы вышли из семьи."
-		if deleted {
-			text = "Вы вышли из семьи, семья удалена."
-		}
-		if err := h.Sender.Send(ctx, chatID, text, nil); err != nil {
-			return err
-		}
-		return h.sendReply(ctx, chatID, onboarding.Welcome())
+		h.takeConfirm(u.TelegramID) // нажата кнопка - текстовое «да» больше не ждём
+		return h.doLeave(ctx, chatID, u)
 	case cbDelete:
-		_, err := h.Families.DeleteMyData(ctx, u.TelegramID)
-		if errors.Is(err, domain.ErrOwnerMustStay) {
-			return h.Sender.Send(ctx, chatID, msgOwnerStays, nil)
-		}
-		if err != nil {
-			return err
-		}
-		return h.Sender.Send(ctx, chatID, "Ваши данные удалены. Если захотите вернуться — напишите /start.", &ReplyMarkup{RemoveKeyboard: true})
+		h.takeConfirm(u.TelegramID)
+		return h.doDelete(ctx, chatID, u)
 	}
 	if strings.HasPrefix(cq.Data, "bc:") && h.isAdmin(cq.From.ID) {
 		return h.broadcastCallback(ctx, chatID, cq.Data)
@@ -308,8 +293,38 @@ func (h *Handler) reply(ctx context.Context, chatID int64) func(onboarding.Reply
 		if err != nil {
 			return err
 		}
-		return h.sendReply(ctx, chatID, r)
+		if err := h.sendReply(ctx, chatID, r); err != nil {
+			return err
+		}
+		if r.Pending != "" {
+			return h.recordPending(ctx, chatID, r.Pending)
+		}
+		return nil
 	}
+}
+
+// rememberable: пользователь ещё выбирает семью и прислал трату, а не код приглашения.
+func (h *Handler) rememberable(ctx context.Context, u domain.User, text string) bool {
+	if u.State != domain.StateNew && u.State != domain.StateAwaitingChoice {
+		return false
+	}
+	if _, isCode := service.NormalizeInviteCode(text); isCode {
+		return false
+	}
+	return h.Agent != nil && h.Agent.LooksLikeExpense(ctx, u.TelegramID, text)
+}
+
+// recordPending записывает трату, отложенную до конца регистрации.
+func (h *Handler) recordPending(ctx context.Context, chatID int64, text string) error {
+	actor, err := h.Families.Actor(ctx, chatID)
+	if err != nil {
+		return err
+	}
+	r, err := h.Agent.Handle(ctx, actor, text)
+	if err != nil {
+		return err
+	}
+	return h.Sender.Send(ctx, chatID, r.Text, nil)
 }
 
 func (h *Handler) sendReply(ctx context.Context, chatID int64, r onboarding.Reply) error {
@@ -426,4 +441,83 @@ func plural(n int) string {
 		return fmt.Sprintf("%d пользователя", n)
 	}
 	return fmt.Sprintf("%d пользователей", n)
+}
+
+// doLeave - выход из семьи после подтверждения (кнопкой или словом «да»).
+func (h *Handler) doLeave(ctx context.Context, chatID int64, u domain.User) error {
+	a, err := h.Families.Actor(ctx, u.TelegramID)
+	if errors.Is(err, domain.ErrNotInFamily) {
+		return h.sendReply(ctx, chatID, onboarding.Welcome())
+	}
+	if err != nil {
+		return err
+	}
+	deleted, err := h.Families.Leave(ctx, a)
+	if errors.Is(err, domain.ErrOwnerMustStay) {
+		return h.Sender.Send(ctx, chatID, msgOwnerStays, nil)
+	}
+	if err != nil {
+		return err
+	}
+	text := "Вы вышли из семьи."
+	if deleted {
+		text = "Вы вышли из семьи, семья удалена."
+	}
+	if err := h.Sender.Send(ctx, chatID, text, nil); err != nil {
+		return err
+	}
+	return h.sendReply(ctx, chatID, onboarding.Welcome())
+}
+
+// doDelete - удаление всех данных пользователя после подтверждения.
+func (h *Handler) doDelete(ctx context.Context, chatID int64, u domain.User) error {
+	_, err := h.Families.DeleteMyData(ctx, u.TelegramID)
+	if errors.Is(err, domain.ErrOwnerMustStay) {
+		return h.Sender.Send(ctx, chatID, msgOwnerStays, nil)
+	}
+	if err != nil {
+		return err
+	}
+	return h.Sender.Send(ctx, chatID, "Ваши данные удалены. Если захотите вернуться — напишите /start.", &ReplyMarkup{RemoveKeyboard: true})
+}
+
+// Подтверждение текстом: «без кнопок» должно работать и для выхода из семьи,
+// и для удаления данных. Ожидание живёт 5 минут и сбрасывается любым другим сообщением.
+const confirmTTL = 5 * time.Minute
+
+type pendingConfirm struct {
+	action string // cbLeave | cbDelete
+	at     time.Time
+}
+
+func (h *Handler) askConfirm(userID int64, action string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.confirms[userID] = pendingConfirm{action: action, at: time.Now()}
+}
+
+func (h *Handler) takeConfirm(userID int64) (string, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	p, ok := h.confirms[userID]
+	delete(h.confirms, userID)
+	return p.action, ok && time.Since(p.at) <= confirmTTL
+}
+
+// confirmByText: ответ на вопрос «выйти?» / «удалить?» словами. handled=false - это не ответ.
+func (h *Handler) confirmByText(ctx context.Context, chatID int64, u domain.User, text string) (bool, error) {
+	action, ok := h.takeConfirm(u.TelegramID)
+	if !ok {
+		return false, nil
+	}
+	switch strings.Trim(pipeline.Normalize(text), ".!") {
+	case "да", "ага", "конечно", "подтверждаю", "да, выйти", "да, удалить", "выйти", "удалить":
+		if action == cbLeave {
+			return true, h.doLeave(ctx, chatID, u)
+		}
+		return true, h.doDelete(ctx, chatID, u)
+	case "нет", "отмена", "не надо", "стоп", "отменить":
+		return true, h.Sender.Send(ctx, chatID, "Хорошо, ничего не меняю.", nil)
+	}
+	return false, nil
 }

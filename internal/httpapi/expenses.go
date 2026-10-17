@@ -122,7 +122,7 @@ type createExpenseRequest struct {
 	UserID   int64        `json:"user_id"` // член семьи, чья трата; 0 = сам владелец
 	Amount   domain.Money `json:"amount"`
 	Category string       `json:"category"`
-	Date     domain.Date  `json:"date"` // необязательно, по умолчанию сегодня
+	SpentAt  domain.Date  `json:"spent_at"` // необязательно, по умолчанию сегодня
 	Title    string       `json:"title"`
 	Comment  string       `json:"comment"`
 }
@@ -138,7 +138,7 @@ func (s *Server) createExpense(w http.ResponseWriter, r *http.Request, a domain.
 	}
 	e, err := s.Expenses.Create(r.Context(), a, domain.Expense{
 		UserID: req.UserID, Amount: req.Amount, Category: domain.Category(req.Category),
-		SpentAt: req.Date, Title: req.Title, Comment: req.Comment,
+		SpentAt: req.SpentAt, Title: req.Title, Comment: req.Comment,
 	})
 	if err != nil {
 		writeError(w, r, err)
@@ -151,7 +151,7 @@ type updateExpenseRequest struct {
 	Version  int          `json:"version"` // из последнего GET; при несовпадении 409
 	Amount   domain.Money `json:"amount"`
 	Category string       `json:"category"`
-	Date     domain.Date  `json:"date"`
+	SpentAt  domain.Date  `json:"spent_at"`
 	Title    string       `json:"title"`
 	Comment  string       `json:"comment"`
 }
@@ -176,7 +176,7 @@ func (s *Server) updateExpense(w http.ResponseWriter, r *http.Request, a domain.
 	}
 	e, err := s.Expenses.Update(r.Context(), scope, domain.Expense{
 		ID: id, Version: req.Version, Amount: req.Amount, Category: domain.Category(req.Category),
-		SpentAt: req.Date, Title: req.Title, Comment: req.Comment,
+		SpentAt: req.SpentAt, Title: req.Title, Comment: req.Comment,
 	})
 	if err != nil {
 		writeError(w, r, err)

@@ -196,6 +196,8 @@ func TestExpensesAPI(t *testing.T) {
 	code, created := e.do("POST", "/api/expenses", map[string]any{"user_id": 2, "amount": "500.50", "category": "еда", "title": "шаурма"})
 	require.Equal(t, http.StatusCreated, code)
 	assert.Equal(t, "500.50", created["amount"])
+	assert.Contains(t, created, "spent_at", "поле даты называется как в модели данных ТЗ")
+	assert.NotContains(t, created, "date")
 	code, _ = e.do("POST", "/api/expenses", `{"amount":500,"category":"еда"}`)
 	assert.Equal(t, http.StatusBadRequest, code, "число вместо строки")
 	code, _ = e.do("POST", "/api/expenses", map[string]any{"amount": "1", "category": "еда", "family_id": 2})
@@ -206,7 +208,7 @@ func TestExpensesAPI(t *testing.T) {
 
 	// Оптимистичная блокировка.
 	id := strconv.Itoa(int(created["id"].(float64)))
-	upd := map[string]any{"version": 1, "amount": "600", "category": "еда", "date": created["date"], "title": "шаурма"}
+	upd := map[string]any{"version": 1, "amount": "600", "category": "еда", "spent_at": created["spent_at"], "title": "шаурма"}
 	code, _ = e.do("PUT", "/api/expenses/"+id, upd)
 	assert.Equal(t, http.StatusOK, code)
 	code, resp = e.do("PUT", "/api/expenses/"+id, upd)
@@ -226,7 +228,7 @@ func TestNoAccessToOtherFamily(t *testing.T) {
 		body   any
 	}{
 		{"GET", nil},
-		{"PUT", map[string]any{"version": 1, "amount": "1", "category": "еда", "date": "2026-10-16"}},
+		{"PUT", map[string]any{"version": 1, "amount": "1", "category": "еда", "spent_at": "2026-10-16"}},
 		{"DELETE", nil},
 	} {
 		code, _ := e.do(c.method, path, c.body)
@@ -288,4 +290,35 @@ func TestMetricsUseRoutePatterns(t *testing.T) {
 	out := string(b)
 	assert.Contains(t, out, `http_requests_total{method="GET",route="GET /api/expenses/{id}",status="404"}`)
 	assert.NotContains(t, out, "/api/expenses/"+strconv.Itoa(int(e.foreignE)), "в метках нет идентификаторов")
+}
+
+func TestNoneModeWithoutFamilyExplainsSetup(t *testing.T) {
+	s, _ := pgtest.New(t)
+	fams := service.NewFamilies(s, service.FamiliesConfig{MaxMembers: 10, InviteTTL: time.Hour, InviteMaxUses: 10, DefaultTZ: "UTC"})
+	api := New(Deps{DB: s, Store: s, Families: fams, Expenses: service.NewExpenses(s, "UTC"), Auth: service.NewAuth(s),
+		AuthMode: config.PanelAuthNone, PublicURL: origin})
+	srv := httptest.NewServer(api.MustHandler())
+	defer srv.Close()
+	get := func() (int, string) {
+		resp, err := http.Get(srv.URL + "/api/me")
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		var body map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		return resp.StatusCode, errCode(body)
+	}
+
+	code, ec := get()
+	assert.Equal(t, http.StatusConflict, code)
+	assert.Equal(t, "no_family", ec, "семьи ещё нет - экран настройки, а не вход")
+
+	ctx := context.Background()
+	for _, id := range []int64{1, 2} {
+		_, err := s.UpsertUser(ctx, id, "u", "")
+		require.NoError(t, err)
+		_, _, err = fams.CreateFamily(ctx, id, "семья")
+		require.NoError(t, err)
+	}
+	_, ec = get()
+	assert.Equal(t, "many_families", ec)
 }

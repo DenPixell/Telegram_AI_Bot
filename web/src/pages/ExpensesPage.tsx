@@ -98,10 +98,10 @@ export function ExpensesPage({ members, meID }: { members: Member[]; meID: numbe
     const g: { date: string; items: Expense[]; total: number }[] = [];
     for (const e of items) {
       const last = g[g.length - 1];
-      if (last?.date === e.date) {
+      if (last?.date === e.spent_at) {
         last.items.push(e);
         last.total += Math.round(Number(e.amount) * 100);
-      } else g.push({ date: e.date, items: [e], total: Math.round(Number(e.amount) * 100) });
+      } else g.push({ date: e.spent_at, items: [e], total: Math.round(Number(e.amount) * 100) });
     }
     return g;
   }, [items]);

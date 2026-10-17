@@ -12,6 +12,7 @@ const botURL = "https://t.me/MyFamilyBudgetplus_Bot";
 type State =
   | { kind: "loading"; text: string }
   | { kind: "login"; reason?: "expired" | "forbidden" | "lost" }
+  | { kind: "setup"; text: string } // режим без входа, но семьи ещё нет или их несколько
   | { kind: "ready"; me: Me };
 
 export default function App() {
@@ -48,6 +49,10 @@ function Root({ themeCtl }: { themeCtl: ReturnType<typeof useTheme> }) {
         setCSRF(me.csrf_token);
         setState({ kind: "ready", me });
       } catch (err) {
+        if (err instanceof ApiError && (err.code === "no_family" || err.code === "many_families")) {
+          setState({ kind: "setup", text: err.message });
+          return;
+        }
         setState({ kind: "login", reason: err instanceof ApiError && err.status === 403 ? "forbidden" : undefined });
       }
     })();
@@ -59,7 +64,25 @@ function Root({ themeCtl }: { themeCtl: ReturnType<typeof useTheme> }) {
 
   if (state.kind === "loading") return <div className="center-screen"><Spinner text={state.text} /></div>;
   if (state.kind === "login") return <Login reason={state.reason} themeButton={top} />;
+  if (state.kind === "setup") return <Setup text={state.text} themeButton={top} />;
   return <Panel me={state.me} themeButton={top} onLogout={logout} />;
+}
+
+function Setup({ text, themeButton }: { text: string; themeButton: React.ReactNode }) {
+  return (
+    <div className="center-screen">
+      <div style={{ position: "fixed", top: 16, right: 16 }}>{themeButton}</div>
+      <div className="welcome">
+        <div className="brand-logo" aria-hidden="true">🏡</div>
+        <h1>Почти готово</h1>
+        <p>{text}</p>
+        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+          <a className="btn btn-primary" href={botURL} target="_blank" rel="noopener noreferrer">Открыть бота в Telegram</a>
+          <button className="btn" onClick={() => window.location.reload()}>Обновить</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Login({ reason, themeButton }: { reason?: "expired" | "forbidden" | "lost"; themeButton: React.ReactNode }) {

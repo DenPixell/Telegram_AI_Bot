@@ -14,7 +14,7 @@ type expenseDTO struct {
 	UserID    int64        `json:"user_id"`
 	Amount    domain.Money `json:"amount"`
 	Category  string       `json:"category"`
-	Date      domain.Date  `json:"date"`
+	SpentAt   domain.Date  `json:"spent_at"` // дата траты, как в модели данных
 	Title     string       `json:"title"`
 	Comment   string       `json:"comment"`
 	Version   int          `json:"version"`
@@ -24,7 +24,7 @@ type expenseDTO struct {
 
 func toExpenseDTO(e domain.Expense) expenseDTO {
 	return expenseDTO{
-		ID: e.ID, UserID: e.UserID, Amount: e.Amount, Category: string(e.Category), Date: e.SpentAt,
+		ID: e.ID, UserID: e.UserID, Amount: e.Amount, Category: string(e.Category), SpentAt: e.SpentAt,
 		Title: e.Title, Comment: e.Comment, Version: e.Version, CreatedAt: e.CreatedAt.UTC(), UpdatedAt: e.UpdatedAt.UTC(),
 	}
 }
