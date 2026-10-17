@@ -190,7 +190,7 @@ func (a *API) GetUpdates(ctx context.Context, offset int64, timeout time.Duratio
 	err := a.call(ctx, "getUpdates", map[string]any{
 		"offset":          offset,
 		"timeout":         int(timeout.Seconds()),
-		"allowed_updates": []string{"message", "callback_query"},
+		"allowed_updates": allowedUpdates,
 	}, &ups)
 	return ups, err
 }
@@ -222,6 +222,30 @@ func (a *API) RemoveInlineKeyboard(ctx context.Context, chatID, messageID int64)
 	return a.call(ctx, "editMessageReplyMarkup", map[string]any{
 		"chat_id": chatID, "message_id": messageID, "reply_markup": map[string]any{"inline_keyboard": [][]InlineButton{}},
 	}, nil)
+}
+
+// allowedUpdates - только то, что бот обрабатывает.
+var allowedUpdates = []string{"message", "callback_query"}
+
+// SetWebhook регистрирует адрес приёма апдейтов. secret Telegram присылает в заголовке
+// X-Telegram-Bot-Api-Secret-Token каждого запроса.
+func (a *API) SetWebhook(ctx context.Context, url, secret string) error {
+	return a.call(ctx, "setWebhook", map[string]any{
+		"url": url, "secret_token": secret, "allowed_updates": allowedUpdates, "max_connections": 20,
+	}, nil)
+}
+
+// WebhookInfo - текущий webhook бота; URL пуст, если работает long polling.
+type WebhookInfo struct {
+	URL                string `json:"url"`
+	PendingUpdateCount int    `json:"pending_update_count"`
+	LastErrorMessage   string `json:"last_error_message"`
+}
+
+func (a *API) GetWebhookInfo(ctx context.Context) (WebhookInfo, error) {
+	var w WebhookInfo
+	err := a.call(ctx, "getWebhookInfo", struct{}{}, &w)
+	return w, err
 }
 
 type Command struct {

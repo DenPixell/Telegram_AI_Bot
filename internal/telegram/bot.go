@@ -4,7 +4,13 @@ package telegram
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -57,9 +63,8 @@ var commands = []Command{
 	{Command: "leave", Description: "Выйти из семьи"},
 }
 
-// Run опрашивает Telegram до отмены ctx, затем ждёт завершения начатых обработок
-// не дольше drain. Неверный токен - фатальная ошибка.
-func (b *Bot) Run(ctx context.Context, drain time.Duration) error {
+// start - общая часть запуска: getMe (неверный токен - фатально) и меню команд.
+func (b *Bot) start(ctx context.Context, mode string) error {
 	me, err := b.getMe(ctx)
 	if err != nil {
 		return err
@@ -67,9 +72,71 @@ func (b *Bot) Run(ctx context.Context, drain time.Duration) error {
 	if b.Username() == "" {
 		b.username.Store(me.Username)
 	}
-	slog.InfoContext(ctx, "telegram bot started", "username", me.Username)
+	slog.InfoContext(ctx, "telegram bot started", "username", me.Username, "mode", mode)
 	if err := b.api.SetMyCommands(ctx, commands); err != nil {
 		slog.WarnContext(ctx, "set commands failed", "err", err)
+	}
+	return nil
+}
+
+// RunWebhook регистрирует webhook и ждёт отмены ctx; апдейты приходят в WebhookHandler.
+// Режим для хостингов, которые усыпляют сервис без входящего трафика: запрос Telegram
+// будит сервис, а недоставленные апдейты Telegram повторяет сам.
+func (b *Bot) RunWebhook(ctx context.Context, url, secret string, drain time.Duration) error {
+	if err := b.start(ctx, "webhook"); err != nil {
+		return err
+	}
+	if err := b.api.SetWebhook(ctx, url, secret); err != nil {
+		return fmt.Errorf("set webhook: %w", err)
+	}
+	slog.InfoContext(ctx, "telegram webhook registered", "url", url)
+	<-ctx.Done()
+	// Webhook не удаляется: после рестарта или пробуждения апдейты должны приходить снова.
+	b.waitDrain(drain)
+	return nil
+}
+
+// WebhookHandler принимает апдейты от Telegram. Запрос без верного секрета отклоняется:
+// иначе любой мог бы прислать «сообщение» от чужого имени. Ответ 200 - сразу, обработка
+// идёт в очереди пользователя, как при polling.
+func (b *Bot) WebhookHandler(secret string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got := r.Header.Get("X-Telegram-Bot-Api-Secret-Token")
+		if subtle.ConstantTimeCompare([]byte(got), []byte(secret)) != 1 {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		var up Update
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&up); err != nil {
+			http.Error(w, "bad update", http.StatusBadRequest)
+			return
+		}
+		b.dispatch(r.Context(), up)
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+// WebhookSecret - секрет для заголовка webhook: заданный явно или выведенный из токена
+// (стабилен между рестартами, не раскрывает токен, только символы, допустимые Telegram).
+func WebhookSecret(configured, token string) string {
+	if configured != "" {
+		return configured
+	}
+	sum := sha256.Sum256([]byte("webhook:" + token))
+	return hex.EncodeToString(sum[:])
+}
+
+// Run опрашивает Telegram до отмены ctx, затем ждёт завершения начатых обработок
+// не дольше drain. Неверный токен - фатальная ошибка.
+func (b *Bot) Run(ctx context.Context, drain time.Duration) error {
+	if err := b.start(ctx, "polling"); err != nil {
+		return err
+	}
+	// Если у бота стоит webhook (например, он развёрнут на хостинге), getUpdates не работает,
+	// а молча удалять webhook нельзя - это отключит работающий экземпляр.
+	if info, err := b.api.GetWebhookInfo(ctx); err == nil && info.URL != "" {
+		return fmt.Errorf("telegram: bot has an active webhook (%s); stop the deployed instance and delete it, "+
+			"or run with TELEGRAM_MODE=webhook", info.URL)
 	}
 
 	var offset int64
@@ -99,6 +166,11 @@ func (b *Bot) Run(ctx context.Context, drain time.Duration) error {
 	}
 
 	slog.Info("telegram polling stopped, draining in-flight updates")
+	b.waitDrain(drain)
+	return nil
+}
+
+func (b *Bot) waitDrain(drain time.Duration) {
 	done := make(chan struct{})
 	go func() { b.wg.Wait(); close(done) }()
 	select {
@@ -106,7 +178,6 @@ func (b *Bot) Run(ctx context.Context, drain time.Duration) error {
 	case <-time.After(drain):
 		slog.Warn("telegram drain timeout, some updates were interrupted")
 	}
-	return nil
 }
 
 func (b *Bot) getMe(ctx context.Context) (User, error) {

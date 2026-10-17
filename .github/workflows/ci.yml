@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, deploy]
   pull_request:
 
 permissions:
@@ -86,6 +86,14 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Build single-container image (Render)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/single.Dockerfile
+          push: false
+          cache-from: type=gha,scope=single
+          cache-to: type=gha,scope=single,mode=max
       - name: Build panel image
         uses: docker/build-push-action@v7
         with:

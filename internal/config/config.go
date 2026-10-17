@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -16,6 +19,9 @@ const (
 
 	AgentModeTools = "tools"
 	AgentModeJSON  = "json"
+
+	TelegramPolling = "polling"
+	TelegramWebhook = "webhook"
 )
 
 type Config struct {
@@ -31,20 +37,31 @@ type Config struct {
 	Currency string `env:"CURRENCY" envDefault:"RUB"`
 
 	DBDSN    string `env:"DB_DSN,required,notEmpty"`
-	HTTPAddr string `env:"HTTP_ADDR" envDefault:":8080"`
-	LogLevel string `env:"LOG_LEVEL" envDefault:"info"`
+	HTTPAddr string `env:"HTTP_ADDR"` // пусто - ":$PORT" (Render, Heroku-подобные) или ":8080"
+	// WebDir - собранная панель (web/dist): если задан, Go сам раздаёт её вместе с API.
+	// Для хостингов с одним контейнером; в docker compose панель раздаёт nginx.
+	WebDir string `env:"WEB_DIR"`
+	// MetricsToken закрывает /metrics (Authorization: Bearer). Нужен, если сервер публичный
+	// (WEB_DIR задан, перед ним нет nginx): без токена /metrics тогда не публикуется.
+	MetricsToken string `env:"METRICS_TOKEN"`
+	LogLevel     string `env:"LOG_LEVEL" envDefault:"info"`
 }
 
 type Telegram struct {
-	Token       string `env:"TELEGRAM_BOT_TOKEN,required,notEmpty"`
-	BotUsername string `env:"BOT_USERNAME"` // пусто = берётся из getMe
+	// Mode: polling (по умолчанию) или webhook - для хостингов, которые усыпляют сервис
+	// без входящего трафика (Render free): запрос Telegram будит сервис.
+	Mode string `env:"TELEGRAM_MODE" envDefault:"polling"`
+	// WebhookSecret проверяется в заголовке каждого запроса Telegram; пусто - выводится из токена.
+	WebhookSecret string `env:"TELEGRAM_WEBHOOK_SECRET"`
+	Token         string `env:"TELEGRAM_BOT_TOKEN,required,notEmpty"`
+	BotUsername   string `env:"BOT_USERNAME"` // пусто = берётся из getMe
 	// APIURL - кастомный базовый URL Bot API (прокси/зеркало), пусто = api.telegram.org.
 	APIURL     string  `env:"TELEGRAM_API_URL"`
 	AllowedIDs []int64 `env:"ALLOWED_TELEGRAM_IDS" envSeparator:","` // пусто = регистрация открыта всем
 }
 
 type Panel struct {
-	PublicURL string `env:"PUBLIC_URL" envDefault:"http://localhost:3000"`
+	PublicURL string `env:"PUBLIC_URL"` // пусто - RENDER_EXTERNAL_URL или http://localhost:3000
 	AuthMode  string `env:"PANEL_AUTH_MODE" envDefault:"magic_link"`
 	FamilyID  int64  `env:"PANEL_FAMILY_ID"` // только для режима none, 0 = единственная семья
 }
@@ -97,10 +114,29 @@ func Load() (*Config, error) {
 	if err := env.Parse(&cfg); err != nil {
 		return nil, fmt.Errorf("parse env: %w", err)
 	}
+	cfg.applyPlatformDefaults(os.Getenv)
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// applyPlatformDefaults берёт значения, которые выставляет хостинг: PORT для HTTP-сервера и
+// RENDER_EXTERNAL_URL как публичный адрес. Явно заданные HTTP_ADDR и PUBLIC_URL важнее.
+func (c *Config) applyPlatformDefaults(getenv func(string) string) {
+	if c.HTTPAddr == "" {
+		c.HTTPAddr = ":8080"
+		if p := getenv("PORT"); p != "" {
+			c.HTTPAddr = ":" + p
+		}
+	}
+	if c.Panel.PublicURL == "" {
+		c.Panel.PublicURL = "http://localhost:3000"
+		if u := getenv("RENDER_EXTERNAL_URL"); u != "" {
+			c.Panel.PublicURL = u
+		}
+	}
+	c.Panel.PublicURL = strings.TrimRight(c.Panel.PublicURL, "/")
 }
 
 func (c *Config) validate() error {
@@ -115,6 +151,15 @@ func (c *Config) validate() error {
 		"PANEL_AUTH_MODE must be %q or %q, got %q", PanelAuthMagicLink, PanelAuthNone, c.Panel.AuthMode)
 	check(isHTTPURL(c.Panel.PublicURL), "PUBLIC_URL must be an http(s) URL, got %q", c.Panel.PublicURL)
 	check(c.Panel.FamilyID >= 0, "PANEL_FAMILY_ID must be >= 0")
+	check(c.Telegram.Mode == TelegramPolling || c.Telegram.Mode == TelegramWebhook,
+		"TELEGRAM_MODE must be %q or %q, got %q", TelegramPolling, TelegramWebhook, c.Telegram.Mode)
+	if c.Telegram.Mode == TelegramWebhook {
+		// Telegram принимает webhook только по HTTPS.
+		check(strings.HasPrefix(c.Panel.PublicURL, "https://"), "TELEGRAM_MODE=webhook requires an https PUBLIC_URL, got %q", c.Panel.PublicURL)
+	}
+	if s := c.Telegram.WebhookSecret; s != "" {
+		check(webhookSecretRe.MatchString(s), "TELEGRAM_WEBHOOK_SECRET must be 1-256 chars of A-Z, a-z, 0-9, _ and -")
+	}
 
 	check(isHTTPURL(c.LLM.BaseURL), "LLM_BASE_URL must be an http(s) URL, got %q", c.LLM.BaseURL)
 	check(c.LLM.Timeout > 0, "LLM_TIMEOUT must be > 0")
@@ -156,6 +201,8 @@ func (c *Config) validate() error {
 
 	return errors.Join(errs...)
 }
+
+var webhookSecretRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,256}$`)
 
 func isHTTPURL(s string) bool {
 	u, err := url.Parse(s)

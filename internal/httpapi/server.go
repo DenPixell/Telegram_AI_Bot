@@ -4,6 +4,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -34,6 +35,14 @@ type Deps struct {
 	BotUsername func() string
 	// ExpandTerms расширяет поисковый запрос синонимами из словаря; nil - без расширения.
 	ExpandTerms func(query string) []string
+
+	// WebDir - собранная панель; если задан, сервер раздаёт её сам (один контейнер).
+	WebDir string
+	// TelegramWebhook - приём апдейтов в режиме TELEGRAM_MODE=webhook; nil - не нужен.
+	TelegramWebhook http.Handler
+	// MetricsToken - Bearer-токен для /metrics; пусто - без токена (за nginx) или /metrics
+	// выключен, если сервер раздаёт панель сам и смотрит в интернет.
+	MetricsToken string
 }
 
 type Server struct {
@@ -58,13 +67,19 @@ func New(d Deps) *Server {
 	return s
 }
 
-func (s *Server) Handler() http.Handler {
+// Handler собирает маршруты. Ошибка - только если WebDir задан, но панели там нет.
+func (s *Server) Handler() (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /readyz", s.readyz)
-	// Метрики Prometheus. Наружу не публикуются: nginx проксирует только /api/,
-	// а порт приложения в compose слушает 127.0.0.1.
-	mux.Handle("GET /metrics", metrics.Handler())
+	// Метрики Prometheus. В compose наружу не публикуются: nginx проксирует только /api/,
+	// а порт приложения слушает 127.0.0.1. В режиме одного контейнера - только с токеном.
+	switch {
+	case s.MetricsToken != "":
+		mux.Handle("GET /metrics", bearer(s.MetricsToken, metrics.Handler()))
+	case s.WebDir == "":
+		mux.Handle("GET /metrics", metrics.Handler())
+	}
 
 	if s.AuthMode == config.PanelAuthMagicLink {
 		mux.Handle("POST /api/auth/exchange", s.limited(s.authLimiter, http.HandlerFunc(s.exchange)))
@@ -95,7 +110,37 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found", "Такого метода API нет")
 	})
-	return requestLog(mux, recoverer(securityHeaders(mux)))
+	if s.TelegramWebhook != nil {
+		mux.Handle("POST /telegram/webhook", s.TelegramWebhook)
+	}
+	if s.WebDir != "" {
+		site, err := newStaticSite(s.WebDir)
+		if err != nil {
+			return nil, err
+		}
+		mux.Handle("/", site)
+	}
+	return requestLog(mux, recoverer(securityHeaders(mux))), nil
+}
+
+func bearer(token string, next http.Handler) http.Handler {
+	want := []byte("Bearer " + token)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), want) != 1 {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// MustHandler - для тестов: панель не раздаётся, ошибок быть не может.
+func (s *Server) MustHandler() http.Handler {
+	h, err := s.Handler()
+	if err != nil {
+		panic(err)
+	}
+	return h
 }
 
 func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {

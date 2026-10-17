@@ -1,7 +1,10 @@
 .git
 .idea
+.claude
 .env
 bin
+backups
 docs
-web
+web/node_modules
+web/dist
 *.md

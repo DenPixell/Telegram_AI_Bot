@@ -71,7 +71,7 @@ func newEnv(t *testing.T, mode string) *env {
 		AuthMode: mode, PanelFamilyID: owner.FamilyID, PublicURL: origin,
 		BotUsername: func() string { return "test_bot" },
 	})
-	srv := httptest.NewServer(api.Handler())
+	srv := httptest.NewServer(api.MustHandler())
 	t.Cleanup(srv.Close)
 	jar, _ := cookiejar.New(nil)
 	return &env{t: t, store: s, families: fams, auth: auth, srv: srv, client: &http.Client{Jar: jar}, owner: owner, foreignE: fe.ID}

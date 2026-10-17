@@ -56,6 +56,33 @@ Telegram-бот, который понимает траты обычными с�
 и открытые порты 80/443. Восстановление бэкапа:
 `gunzip -c backups/expenses-<дата>.sql.gz | docker compose exec -T db psql -U app -d expenses`.
 
+## Деплой на Render (бесплатно)
+
+В репозитории есть [render.yaml](render.yaml): Render по нему сам создаёт сервис и БД. Всё работает в одном
+контейнере ([deploy/single.Dockerfile](deploy/single.Dockerfile)): API, бот и панель.
+
+Особенности бесплатного тарифа Render, под которые настроен деплой:
+
+- **Сервис засыпает через 15 минут без входящих запросов.** Поэтому бот работает через webhook
+  (`TELEGRAM_MODE=webhook`): сообщение из Telegram будит сервис. Первое сообщение после простоя обрабатывается
+  примерно через минуту — Telegram сам повторяет доставку.
+- **Бесплатная БД Render удаляется через 30 дней** (плюс 14 дней на апгрейд). Для постоянной работы укажите в
+  `DB_DSN` внешний бесплатный Postgres, например [Neon](https://neon.tech), со `?sslmode=require`.
+- 750 бесплатных часов в месяц на аккаунт — одному сервису хватает.
+
+Шаги:
+
+1. Если уже создан сервис с runtime Go, удалите его: runtime сервиса нельзя сменить на Docker.
+2. Render → **New → Blueprint** → выберите репозиторий и ветку.
+3. Введите секреты, которые спросит Render: `TELEGRAM_BOT_TOKEN`, `LLM_API_KEY`, `LLM_FALLBACK_API_KEY`.
+4. Дождитесь деплоя и проверьте `https://<сервис>.onrender.com/healthz`. Бот сам зарегистрирует webhook на этот адрес.
+5. **Остановите локальный бот** (`docker compose stop app`): webhook и long polling с одним токеном не работают
+   одновременно. Если позже запустить локально в режиме polling, сервер не станет снимать чужой webhook и
+   остановится с понятной ошибкой.
+6. Напишите боту `панель`: ссылка будет вести на адрес Render (`PUBLIC_URL` берётся из `RENDER_EXTERNAL_URL`).
+
+`/metrics` в этом режиме закрыт токеном: `Authorization: Bearer <METRICS_TOKEN из дашборда>`.
+
 ## Как это устроено
 
 ```mermaid
@@ -126,6 +153,9 @@ docker run --rm -it -p 3000:3000 -e API_URL=http://host.docker.internal:8080 -v 
 | Переменная | Зачем |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | токен от @BotFather (обязательно) |
+| `TELEGRAM_MODE` | `polling` (по умолчанию) или `webhook` для хостингов, которые усыпляют сервис; webhook требует https `PUBLIC_URL` |
+| `WEB_DIR` | путь к собранной панели — тогда Go раздаёт её сам (один контейнер) |
+| `METRICS_TOKEN` | Bearer-токен для `/metrics`; без него в режиме одного контейнера `/metrics` не публикуется |
 | `ALLOWED_TELEGRAM_IDS` | список ID через запятую — закрытая регистрация; пусто — открыта всем |
 | `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | основной провайдер (обязательно) |
 | `LLM_REASONING_EFFORT` | `none`/`minimal`/`low` для «думающих» моделей, иначе они тратят лимит токенов на размышления |

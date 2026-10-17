@@ -1,0 +1,54 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> этот репозиторий.
+# Секреты (sync: false) Render спросит при создании. Подробности - README, раздел «Деплой на Render».
+services:
+  - type: web
+    name: expense-bot
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./deploy/single.Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    envVars:
+      # Telegram: webhook, потому что бесплатный сервис засыпает без входящих запросов,
+      # а запрос от Telegram его будит. PUBLIC_URL берётся из RENDER_EXTERNAL_URL.
+      - key: TELEGRAM_MODE
+        value: webhook
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      # LLM (проверено: Gemini 3.5 Flash + reasoning_effort=none, запасной - Flash Lite).
+      - key: LLM_BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta/openai
+      - key: LLM_MODEL
+        value: gemini-3.5-flash
+      - key: LLM_REASONING_EFFORT
+        value: none
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_FALLBACK_BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta/openai
+      - key: LLM_FALLBACK_MODEL
+        value: gemini-flash-lite-latest
+      - key: LLM_FALLBACK_API_KEY
+        sync: false
+      - key: PANEL_AUTH_MODE
+        value: magic_link
+      - key: APP_TZ
+        value: Europe/Moscow
+      # /metrics доступен только с заголовком Authorization: Bearer <значение из дашборда>.
+      - key: METRICS_TOKEN
+        generateValue: true
+      # Бесплатная БД Render удаляется через 30 дней. Для постоянной работы замените DB_DSN
+      # в дашборде на строку внешнего Postgres (например, Neon) с ?sslmode=require.
+      - key: DB_DSN
+        fromDatabase:
+          name: expense-bot-db
+          property: connectionString
+
+databases:
+  - name: expense-bot-db
+    plan: free
+    region: frankfurt
+    databaseName: expenses
+    user: app
+    postgresMajorVersion: "16"

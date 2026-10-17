@@ -65,3 +65,44 @@ func TestLoadMissingRequired(t *testing.T) {
 		t.Fatal("expected error for missing TELEGRAM_BOT_TOKEN")
 	}
 }
+
+func TestPlatformDefaults(t *testing.T) {
+	setRequired(t)
+	t.Setenv("PORT", "10000")
+	t.Setenv("RENDER_EXTERNAL_URL", "https://expense-bot.onrender.com/")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.HTTPAddr != ":10000" || cfg.Panel.PublicURL != "https://expense-bot.onrender.com" {
+		t.Fatalf("addr=%q public=%q", cfg.HTTPAddr, cfg.Panel.PublicURL)
+	}
+
+	t.Setenv("HTTP_ADDR", ":9090")
+	t.Setenv("PUBLIC_URL", "https://bot.example.com")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.HTTPAddr != ":9090" || cfg.Panel.PublicURL != "https://bot.example.com" {
+		t.Fatal("явные HTTP_ADDR и PUBLIC_URL важнее значений хостинга")
+	}
+}
+
+func TestWebhookModeValidation(t *testing.T) {
+	setRequired(t)
+	t.Setenv("TELEGRAM_MODE", "webhook")
+	t.Setenv("PUBLIC_URL", "http://localhost:3000")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "https") {
+		t.Fatalf("webhook без HTTPS должен отклоняться: %v", err)
+	}
+	t.Setenv("PUBLIC_URL", "https://bot.example.com")
+	t.Setenv("TELEGRAM_WEBHOOK_SECRET", "has spaces!")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "TELEGRAM_WEBHOOK_SECRET") {
+		t.Fatalf("секрет с недопустимыми символами: %v", err)
+	}
+	t.Setenv("TELEGRAM_WEBHOOK_SECRET", "ok_secret-123")
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+}

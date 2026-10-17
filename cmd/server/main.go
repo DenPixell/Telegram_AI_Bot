@@ -113,26 +113,39 @@ func run() error {
 		AppTZ:       cfg.AppTZ,
 	}))
 
+	webhookSecret := telegram.WebhookSecret(cfg.Telegram.WebhookSecret, cfg.Telegram.Token)
+	var webhook http.Handler
+	if cfg.Telegram.Mode == config.TelegramWebhook {
+		webhook = bot.WebhookHandler(webhookSecret)
+	}
+
 	api := httpapi.New(httpapi.Deps{
-		DB:            store,
-		Store:         store,
-		Families:      families,
-		Expenses:      expenses,
-		Auth:          auth,
-		AuthMode:      cfg.Panel.AuthMode,
-		PanelFamilyID: cfg.Panel.FamilyID,
-		PublicURL:     cfg.Panel.PublicURL,
-		BotUsername:   botUsername,
-		ExpandTerms:   dict.Expand,
+		DB:              store,
+		Store:           store,
+		Families:        families,
+		Expenses:        expenses,
+		Auth:            auth,
+		AuthMode:        cfg.Panel.AuthMode,
+		PanelFamilyID:   cfg.Panel.FamilyID,
+		PublicURL:       cfg.Panel.PublicURL,
+		BotUsername:     botUsername,
+		ExpandTerms:     dict.Expand,
+		WebDir:          cfg.WebDir,
+		TelegramWebhook: webhook,
+		MetricsToken:    cfg.MetricsToken,
 	})
 	if cfg.Panel.AuthMode == config.PanelAuthNone {
 		slog.Warn("panel authentication is disabled (PANEL_AUTH_MODE=none), use only for local demo")
 	}
 	go cleanupLoop(ctx, store)
 
+	handler, err := api.Handler()
+	if err != nil {
+		return err
+	}
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           api.Handler(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -150,7 +163,13 @@ func run() error {
 	botCtx, stopBot := context.WithCancel(ctx)
 	defer stopBot()
 	botDone := make(chan error, 1)
-	go func() { botDone <- bot.Run(botCtx, shutdownTimeout) }()
+	go func() {
+		if cfg.Telegram.Mode == config.TelegramWebhook {
+			botDone <- bot.RunWebhook(botCtx, cfg.Panel.PublicURL+"/telegram/webhook", webhookSecret, shutdownTimeout)
+			return
+		}
+		botDone <- bot.Run(botCtx, shutdownTimeout)
+	}()
 
 	select {
 	case <-ctx.Done():
