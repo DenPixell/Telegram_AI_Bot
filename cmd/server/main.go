@@ -96,6 +96,12 @@ func run() error {
 			slog.WarnContext(ctx, "mark user inactive failed", "err", err)
 		}
 	})
+	broadcaster := telegram.NewBroadcaster(ctx, store, sender)
+	if n, err := store.FailStaleBroadcasts(ctx); err != nil {
+		return err
+	} else if n > 0 {
+		slog.Warn("broadcasts interrupted by a previous restart were closed", "count", n)
+	}
 	bot.SetHandler(telegram.NewHandler(telegram.HandlerDeps{
 		Store:       store,
 		Families:    families,
@@ -107,6 +113,8 @@ func run() error {
 		API:         tgAPI,
 		BotUsername: botUsername,
 		AllowedIDs:  cfg.Telegram.AllowedIDs,
+		AdminIDs:    cfg.Telegram.AdminIDs,
+		Broadcast:   broadcaster,
 		AuthMode:    cfg.Panel.AuthMode,
 		PublicURL:   cfg.Panel.PublicURL,
 		InviteTTL:   cfg.Limits.InviteTTL,
@@ -133,6 +141,8 @@ func run() error {
 		WebDir:          cfg.WebDir,
 		TelegramWebhook: webhook,
 		MetricsToken:    cfg.MetricsToken,
+		Broadcast:       broadcaster,
+		AdminToken:      cfg.AdminToken,
 	})
 	if cfg.Panel.AuthMode == config.PanelAuthNone {
 		slog.Warn("panel authentication is disabled (PANEL_AUTH_MODE=none), use only for local demo")

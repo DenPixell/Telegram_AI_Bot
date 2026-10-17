@@ -16,6 +16,9 @@ services:
         value: webhook
       - key: TELEGRAM_BOT_TOKEN
         sync: false
+      # Ваш Telegram ID (узнать: @userinfobot) - для рассылки всем командой /broadcast.
+      - key: ADMIN_TELEGRAM_IDS
+        sync: false
       # LLM (проверено: Gemini 3.5 Flash + reasoning_effort=none, запасной - Flash Lite).
       - key: LLM_BASE_URL
         value: https://generativelanguage.googleapis.com/v1beta/openai
@@ -37,6 +40,9 @@ services:
         value: Europe/Moscow
       # /metrics доступен только с заголовком Authorization: Bearer <значение из дашборда>.
       - key: METRICS_TOKEN
+        generateValue: true
+      # HTTP API рассылки: POST /admin/broadcast с Authorization: Bearer <значение из дашборда>.
+      - key: ADMIN_TOKEN
         generateValue: true
       # Бесплатная БД Render удаляется через 30 дней. Для постоянной работы замените DB_DSN
       # в дашборде на строку внешнего Postgres (например, Neon) с ?sslmode=require.

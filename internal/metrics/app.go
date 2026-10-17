@@ -25,3 +25,7 @@ var (
 	HTTPDuration = NewHistogramVec("http_request_duration_seconds",
 		"Длительность HTTP-запросов к API.", DurationBuckets, "route")
 )
+
+// BroadcastMessages - сообщения рассылок: sent, blocked, failed.
+var BroadcastMessages = NewCounterVec("broadcast_messages_total",
+	"Сообщения рассылок всем пользователям по результату.", "result")

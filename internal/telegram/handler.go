@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,8 @@ type HandlerDeps struct {
 	BotUsername func() string
 
 	AllowedIDs []int64 // пусто - регистрация открыта всем
+	AdminIDs   []int64 // могут делать рассылку /broadcast
+	Broadcast  *Broadcaster
 	AuthMode   string
 	PublicURL  string
 	InviteTTL  time.Duration
@@ -123,6 +126,9 @@ func (h *Handler) message(ctx context.Context, m *Message) error {
 	// Логируем длину, а не текст: сообщения - персональные данные.
 	slog.DebugContext(ctx, "message", "user_id", u.TelegramID, "state", u.State, "len", len(text), "location", m.Location != nil)
 
+	if cmd, payload, ok := command(text); ok && cmd == "broadcast" && h.isAdmin(from.ID) {
+		return h.broadcastDraft(ctx, m.Chat.ID, from.ID, payload)
+	}
 	if cmd, payload, ok := command(text); ok && cmd == "start" {
 		return h.reply(ctx, m.Chat.ID)(h.FSM.Start(ctx, u, payload))
 	}
@@ -286,6 +292,9 @@ func (h *Handler) callback(ctx context.Context, cq *CallbackQuery) error {
 		}
 		return h.Sender.Send(ctx, chatID, "Ваши данные удалены. Если захотите вернуться — напишите /start.", &ReplyMarkup{RemoveKeyboard: true})
 	}
+	if strings.HasPrefix(cq.Data, "bc:") && h.isAdmin(cq.From.ID) {
+		return h.broadcastCallback(ctx, chatID, cq.Data)
+	}
 	if strings.HasPrefix(cq.Data, "onb:") {
 		return h.reply(ctx, chatID)(h.FSM.Callback(ctx, u, cq.Data))
 	}
@@ -353,4 +362,68 @@ func command(text string) (name, payload string, ok bool) {
 	head, rest, _ := strings.Cut(text[1:], " ")
 	head, _, _ = strings.Cut(head, "@")
 	return strings.ToLower(head), strings.TrimSpace(rest), true
+}
+
+func (h *Handler) isAdmin(userID int64) bool {
+	return h.Broadcast != nil && slices.Contains(h.AdminIDs, userID)
+}
+
+// broadcastDraft - первый шаг рассылки: черновик и предпросмотр с подтверждением.
+func (h *Handler) broadcastDraft(ctx context.Context, chatID, adminID int64, text string) error {
+	bc, n, err := h.Broadcast.Draft(ctx, text, adminID)
+	if errors.Is(err, ErrEmptyBroadcast) {
+		return h.Sender.Send(ctx, chatID, "Напишите текст после команды, до 4000 символов. Например:\n"+
+			"/broadcast Сегодня с 22:00 до 23:00 бот на техобслуживании. Траты, отправленные в это время, запишутся после.", nil)
+	}
+	if err != nil {
+		return err
+	}
+	preview := fmt.Sprintf("Рассылку №%d получат %s. Так они увидят сообщение:\n\n%s", bc.ID, plural(n), bc.Text)
+	id := strconv.FormatInt(bc.ID, 10)
+	return h.Sender.Send(ctx, chatID, preview, &ReplyMarkup{InlineKeyboard: [][]InlineButton{{
+		{Text: "📢 Отправить", CallbackData: "bc:send:" + id},
+		{Text: "Отмена", CallbackData: "bc:cancel:" + id},
+	}}})
+}
+
+func (h *Handler) broadcastCallback(ctx context.Context, chatID int64, data string) error {
+	parts := strings.Split(data, ":")
+	if len(parts) != 3 {
+		return nil
+	}
+	id, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return nil
+	}
+	switch parts[1] {
+	case "cancel":
+		if err := h.Broadcast.Cancel(ctx, id); err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return err
+		}
+		return h.Sender.Send(ctx, chatID, "Рассылка отменена.", nil)
+	case "send":
+		bc, err := h.Broadcast.Start(ctx, id)
+		switch {
+		case errors.Is(err, domain.ErrConflict):
+			return h.Sender.Send(ctx, chatID, "Сейчас уже идёт другая рассылка. Дождитесь отчёта и попробуйте снова.", nil)
+		case errors.Is(err, domain.ErrNotFound):
+			return h.Sender.Send(ctx, chatID, "Эта рассылка уже отправлена или отменена.", nil)
+		case err != nil:
+			return err
+		}
+		return h.Sender.Send(ctx, chatID, fmt.Sprintf("Рассылка №%d запущена: %s. Пришлю отчёт, когда закончу.", bc.ID, plural(bc.Total)), nil)
+	}
+	return nil
+}
+
+// plural: 1 пользователь, 2 пользователя, 5 пользователей.
+func plural(n int) string {
+	m10, m100 := n%10, n%100
+	switch {
+	case m10 == 1 && m100 != 11:
+		return fmt.Sprintf("%d пользователь", n)
+	case m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14):
+		return fmt.Sprintf("%d пользователя", n)
+	}
+	return fmt.Sprintf("%d пользователей", n)
 }

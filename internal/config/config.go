@@ -44,7 +44,9 @@ type Config struct {
 	// MetricsToken закрывает /metrics (Authorization: Bearer). Нужен, если сервер публичный
 	// (WEB_DIR задан, перед ним нет nginx): без токена /metrics тогда не публикуется.
 	MetricsToken string `env:"METRICS_TOKEN"`
-	LogLevel     string `env:"LOG_LEVEL" envDefault:"info"`
+	// AdminToken открывает HTTP API рассылки (POST /admin/broadcast); пусто - API выключен.
+	AdminToken string `env:"ADMIN_TOKEN"`
+	LogLevel   string `env:"LOG_LEVEL" envDefault:"info"`
 }
 
 type Telegram struct {
@@ -58,6 +60,8 @@ type Telegram struct {
 	// APIURL - кастомный базовый URL Bot API (прокси/зеркало), пусто = api.telegram.org.
 	APIURL     string  `env:"TELEGRAM_API_URL"`
 	AllowedIDs []int64 `env:"ALLOWED_TELEGRAM_IDS" envSeparator:","` // пусто = регистрация открыта всем
+	// AdminIDs могут делать рассылку всем пользователям командой /broadcast.
+	AdminIDs []int64 `env:"ADMIN_TELEGRAM_IDS" envSeparator:","`
 }
 
 type Panel struct {
@@ -198,6 +202,7 @@ func (c *Config) validate() error {
 		errs = append(errs, fmt.Errorf("APP_TZ %q is not a valid IANA zone: %w", c.AppTZ, err))
 	}
 	check(c.Currency != "", "CURRENCY must not be empty")
+	check(c.AdminToken == "" || len(c.AdminToken) >= 16, "ADMIN_TOKEN must be at least 16 characters")
 
 	return errors.Join(errs...)
 }

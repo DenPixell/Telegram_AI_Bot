@@ -43,6 +43,10 @@ type Deps struct {
 	// MetricsToken - Bearer-токен для /metrics; пусто - без токена (за nginx) или /metrics
 	// выключен, если сервер раздаёт панель сам и смотрит в интернет.
 	MetricsToken string
+
+	// Broadcast и AdminToken - HTTP API рассылки; без токена API выключен.
+	Broadcast  Broadcaster
+	AdminToken string
 }
 
 type Server struct {
@@ -110,6 +114,12 @@ func (s *Server) Handler() (http.Handler, error) {
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found", "Такого метода API нет")
 	})
+	// API рассылки - не под /api/: в compose nginx его не проксирует, доступ только с хоста
+	// или (в режиме одного контейнера) по токену. Лимитер замедляет перебор токена.
+	if s.AdminToken != "" && s.Broadcast != nil {
+		mux.Handle("POST /admin/broadcast", s.limited(s.authLimiter, bearer(s.AdminToken, http.HandlerFunc(s.adminBroadcast))))
+		mux.Handle("GET /admin/broadcast/{id}", s.limited(s.authLimiter, bearer(s.AdminToken, http.HandlerFunc(s.adminBroadcastStatus))))
+	}
 	if s.TelegramWebhook != nil {
 		mux.Handle("POST /telegram/webhook", s.TelegramWebhook)
 	}

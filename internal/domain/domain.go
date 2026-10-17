@@ -108,3 +108,30 @@ type LearnedTerm struct {
 	Source    string // "wiktionary" | "llm"
 	UpdatedAt time.Time
 }
+
+// BroadcastStatus - этап рассылки.
+type BroadcastStatus string
+
+const (
+	BroadcastDraft     BroadcastStatus = "draft"     // ждёт подтверждения
+	BroadcastSending   BroadcastStatus = "sending"   // идёт отправка
+	BroadcastDone      BroadcastStatus = "done"      // завершена
+	BroadcastCancelled BroadcastStatus = "cancelled" // отменена до отправки
+)
+
+// MaxBroadcastLen совпадает с CHECK в таблице broadcasts (лимит Telegram - 4096).
+const MaxBroadcastLen = 4000
+
+// Broadcast - сообщение всем пользователям бота.
+type Broadcast struct {
+	ID         int64
+	Text       string
+	CreatedBy  int64 // Telegram ID администратора; 0 - через HTTP API
+	Status     BroadcastStatus
+	Total      int
+	Sent       int
+	Failed     int
+	CreatedAt  time.Time
+	StartedAt  *time.Time
+	FinishedAt *time.Time
+}

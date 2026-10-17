@@ -350,3 +350,50 @@ func TestDeleteUserData(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, items, 1, "траты остальных не тронуты")
 }
+
+func TestBroadcastLifecycle(t *testing.T) {
+	s, _ := pgtest.New(t)
+	for _, id := range []int64{1, 2, 3} {
+		_, err := s.UpsertUser(ctx, id, "u", "")
+		require.NoError(t, err)
+	}
+	require.NoError(t, s.SetUserActive(ctx, 3, false))
+	ids, err := s.ActiveUserIDs(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{1, 2}, ids, "заблокировавшие бота не получают рассылку")
+	n, err := s.CountActiveUsers(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+
+	_, err = s.CreateBroadcast(ctx, "", 1)
+	assert.ErrorIs(t, err, domain.ErrValidation, "пустой текст отвергает CHECK")
+
+	a, err := s.CreateBroadcast(ctx, "Техобслуживание в 22:00", 1)
+	require.NoError(t, err)
+	assert.Equal(t, domain.BroadcastDraft, a.Status)
+	assert.EqualValues(t, 1, a.CreatedBy)
+	b, err := s.CreateBroadcast(ctx, "Вторая", 0)
+	require.NoError(t, err)
+	assert.Zero(t, b.CreatedBy, "через HTTP API - без автора")
+
+	started, err := s.StartBroadcast(ctx, a.ID, 2)
+	require.NoError(t, err)
+	assert.Equal(t, domain.BroadcastSending, started.Status)
+	_, err = s.StartBroadcast(ctx, a.ID, 2)
+	assert.ErrorIs(t, err, domain.ErrNotFound, "повторное нажатие «Отправить»")
+	_, err = s.StartBroadcast(ctx, b.ID, 2)
+	assert.ErrorIs(t, err, domain.ErrConflict, "две рассылки одновременно нельзя")
+	assert.ErrorIs(t, s.CancelBroadcast(ctx, a.ID), domain.ErrNotFound, "начатую не отменить")
+
+	require.NoError(t, s.UpdateBroadcastProgress(ctx, a.ID, 1, 0))
+	done, err := s.FinishBroadcast(ctx, a.ID, 2, 0)
+	require.NoError(t, err)
+	assert.Equal(t, domain.BroadcastDone, done.Status)
+	assert.NotNil(t, done.FinishedAt)
+
+	_, err = s.StartBroadcast(ctx, b.ID, 2)
+	require.NoError(t, err, "после завершения можно следующую")
+	closed, err := s.FailStaleBroadcasts(ctx)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, closed, "прерванная рестартом рассылка закрывается при старте")
+}

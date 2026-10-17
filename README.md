@@ -74,7 +74,8 @@ Telegram-бот, который понимает траты обычными с�
 
 1. Если уже создан сервис с runtime Go, удалите его: runtime сервиса нельзя сменить на Docker.
 2. Render → **New → Blueprint** → выберите репозиторий и ветку.
-3. Введите секреты, которые спросит Render: `TELEGRAM_BOT_TOKEN`, `LLM_API_KEY`, `LLM_FALLBACK_API_KEY`.
+3. Введите секреты, которые спросит Render: `TELEGRAM_BOT_TOKEN`, `LLM_API_KEY`, `LLM_FALLBACK_API_KEY` и
+   `ADMIN_TELEGRAM_IDS` (ваш Telegram ID — его покажет @userinfobot; нужен для рассылок).
 4. Дождитесь деплоя и проверьте `https://<сервис>.onrender.com/healthz`. Бот сам зарегистрирует webhook на этот адрес.
 5. **Остановите локальный бот** (`docker compose stop app`): webhook и long polling с одним токеном не работают
    одновременно. Если позже запустить локально в режиме polling, сервер не станет снимать чужой webhook и
@@ -82,6 +83,26 @@ Telegram-бот, который понимает траты обычными с�
 6. Напишите боту `панель`: ссылка будет вести на адрес Render (`PUBLIC_URL` берётся из `RENDER_EXTERNAL_URL`).
 
 `/metrics` в этом режиме закрыт токеном: `Authorization: Bearer <METRICS_TOKEN из дашборда>`.
+
+## Рассылка всем пользователям
+
+Например, перед техобслуживанием. Два способа:
+
+- **В боте** (для ID из `ADMIN_TELEGRAM_IDS`): `/broadcast Сегодня с 22:00 до 23:00 бот на техобслуживании.` Бот
+  покажет предпросмотр и число получателей, после «Отправить» разошлёт сообщение и пришлёт отчёт: сколько
+  доставлено, сколько нет.
+- **HTTP API** (если задан `ADMIN_TOKEN`, не короче 16 символов):
+
+  ```bash
+  curl -X POST https://<адрес>/admin/broadcast -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" -d '{"text":"Сегодня с 22:00 до 23:00 бот на техобслуживании."}'
+  ```
+
+  Ответ `202` с `id`; ход рассылки — `GET /admin/broadcast/<id>`. В docker compose API доступен только с хоста
+  (`localhost:8080`), через панель он не проксируется.
+
+Получают все, кто писал боту и не заблокировал его. Заблокировавшие помечаются и больше не получают рассылки.
+Отправка идёт в фоне с соблюдением лимитов Telegram (~30 сообщений в секунду). Одновременно — только одна рассылка,
+повторное нажатие «Отправить» ничего не задвоит. Все рассылки сохраняются в таблице `broadcasts`.
 
 ## Как это устроено
 
@@ -155,6 +176,8 @@ docker run --rm -it -p 3000:3000 -e API_URL=http://host.docker.internal:8080 -v 
 | `TELEGRAM_BOT_TOKEN` | токен от @BotFather (обязательно) |
 | `TELEGRAM_MODE` | `polling` (по умолчанию) или `webhook` для хостингов, которые усыпляют сервис; webhook требует https `PUBLIC_URL` |
 | `WEB_DIR` | путь к собранной панели — тогда Go раздаёт её сам (один контейнер) |
+| `ADMIN_TELEGRAM_IDS` | администраторы: команда `/broadcast` для рассылки всем |
+| `ADMIN_TOKEN` | токен HTTP API рассылки (`POST /admin/broadcast`); пусто — API выключен |
 | `METRICS_TOKEN` | Bearer-токен для `/metrics`; без него в режиме одного контейнера `/metrics` не публикуется |
 | `ALLOWED_TELEGRAM_IDS` | список ID через запятую — закрытая регистрация; пусто — открыта всем |
 | `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` | основной провайдер (обязательно) |
