@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"expense-bot/internal/domain"
+	"expense-bot/internal/metrics"
 )
 
 // Source - откуда взята категория.
@@ -68,6 +69,16 @@ func NewCategorizer(dict *Dictionary, store LearnedStore, thes Thesaurus, timeou
 
 // Categorize определяет термин по словам названия траты (без суммы, даты и служебных слов).
 func (c *Categorizer) Categorize(ctx context.Context, words []string) Guess {
+	g := c.categorize(ctx, words)
+	src := string(g.Source)
+	if src == "" {
+		src = "none"
+	}
+	metrics.CategorySource.Inc(src)
+	return g
+}
+
+func (c *Categorizer) categorize(ctx context.Context, words []string) Guess {
 	if g, ok := c.fromDictionary(words); ok {
 		return g
 	}

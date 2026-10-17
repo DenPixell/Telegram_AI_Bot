@@ -17,7 +17,7 @@ func TestWiktionaryRedirectDoesNotStealExactTitle(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "собака|собаки", r.URL.Query().Get("titles"))
 		assert.Contains(t, r.Header.Get("User-Agent"), "expense-bot")
-		io.WriteString(w, `{"query":{
+		_, _ = io.WriteString(w, `{"query":{
 			"redirects":[{"from":"собаки","to":"собака"}],
 			"pages":[{"title":"собака","revisions":[{"slots":{"main":{"content":"= {{-ru-}} =\n==== Гиперонимы ====\n# [[животное]]\n"}}}]}]}}`)
 	}))

@@ -44,7 +44,7 @@ func newMock(t *testing.T, rs ...func(w http.ResponseWriter)) (*mockProvider, *h
 	return m, srv
 }
 
-func ok(w http.ResponseWriter) { io.WriteString(w, okReply) }
+func ok(w http.ResponseWriter) { _, _ = io.WriteString(w, okReply) }
 
 func status(code int, body string, headers ...string) func(w http.ResponseWriter) {
 	return func(w http.ResponseWriter) {
@@ -52,7 +52,7 @@ func status(code int, body string, headers ...string) func(w http.ResponseWriter
 			w.Header().Set(headers[i], headers[i+1])
 		}
 		w.WriteHeader(code)
-		io.WriteString(w, body)
+		_, _ = io.WriteString(w, body)
 	}
 }
 

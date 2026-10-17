@@ -136,7 +136,7 @@ func tempDatabase(ctx context.Context, base string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	tempDB = "expbot_test_" + hex.EncodeToString(b)

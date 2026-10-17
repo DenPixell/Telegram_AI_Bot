@@ -126,7 +126,7 @@ func (c *OpenAI) Complete(ctx context.Context, req Request) (Response, error) {
 	if err != nil {
 		return Response{}, fmt.Errorf("%s: %w", c.name, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
 		return Response{}, fmt.Errorf("%s: read response: %w", c.name, err)
@@ -144,7 +144,7 @@ func (c *OpenAI) Complete(ctx context.Context, req Request) (Response, error) {
 
 	var wire oaResponse
 	if err := json.Unmarshal(raw, &wire); err != nil {
-		return Response{}, fmt.Errorf("%s: %w: %v", c.name, ErrBadResponse, err)
+		return Response{}, fmt.Errorf("%s: %w: %w", c.name, ErrBadResponse, err)
 	}
 	if wire.Error != nil {
 		return Response{}, &APIError{Provider: c.name, Status: http.StatusBadGateway, Message: truncate(wire.Error.Message, 300)}

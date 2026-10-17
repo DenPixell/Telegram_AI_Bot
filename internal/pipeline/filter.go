@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"expense-bot/internal/domain"
+	"expense-bot/internal/metrics"
 )
 
 // Verdict - что делать с сообщением после фильтра правил.
@@ -72,6 +73,12 @@ func NewAnalyzer(dict *Dictionary, cat *Categorizer, maxLen int) *Analyzer {
 
 // Analyze классифицирует сообщение. today - текущая дата в поясе пользователя.
 func (a *Analyzer) Analyze(ctx context.Context, text string, today domain.Date) Decision {
+	d := a.analyze(ctx, text, today)
+	metrics.FilterDecisions.Inc(string(d.Verdict), string(d.Reason))
+	return d
+}
+
+func (a *Analyzer) analyze(ctx context.Context, text string, today domain.Date) Decision {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return reject(ReasonEmpty)

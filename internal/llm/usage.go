@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"expense-bot/internal/metrics"
 )
 
 // UsageRecord - одна попытка запроса к провайдеру, для квот и контроля стоимости.
@@ -59,6 +61,14 @@ func (r *recording) Complete(ctx context.Context, req Request) (Response, error)
 	if saveErr := r.rec.RecordUsage(saveCtx, rec); saveErr != nil {
 		slog.WarnContext(ctx, "record llm usage failed", "err", saveErr)
 	}
+	result := "ok"
+	if err != nil {
+		result = "error"
+	}
+	metrics.LLMRequests.Inc(rec.Provider, result)
+	metrics.LLMLatency.ObserveDuration(rec.Latency, rec.Provider)
+	metrics.LLMTokens.Add(float64(rec.PromptTokens), rec.Provider, "prompt")
+	metrics.LLMTokens.Add(float64(rec.CompletionTokens), rec.Provider, "completion")
 	slog.InfoContext(ctx, "llm request", "provider", rec.Provider, "model", rec.Model, "ok", rec.OK,
 		"latency", rec.Latency.String(), "prompt_tokens", rec.PromptTokens, "completion_tokens", rec.CompletionTokens)
 	return resp, err

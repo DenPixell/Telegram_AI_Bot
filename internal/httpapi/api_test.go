@@ -104,7 +104,7 @@ func (e *env) do(method, path string, body any, hdr ...string) (int, map[string]
 	}
 	resp, err := e.client.Do(req)
 	require.NoError(e.t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var out map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&out)
 	return resp.StatusCode, out
@@ -275,4 +275,17 @@ func TestNoneAuthModeActsAsOwner(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, code, "Origin проверяется всегда")
 	code, _ = e.do("POST", "/api/auth/exchange", map[string]string{"token": "x"})
 	assert.Equal(t, http.StatusNotFound, code, "входа по ссылке в режиме none нет")
+}
+
+func TestMetricsUseRoutePatterns(t *testing.T) {
+	e := newEnv(t, config.PanelAuthMagicLink)
+	e.login()
+	e.do("GET", "/api/expenses/"+strconv.Itoa(int(e.foreignE)), nil)
+	resp, err := e.client.Get(e.srv.URL + "/metrics")
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(resp.Body)
+	out := string(b)
+	assert.Contains(t, out, `http_requests_total{method="GET",route="GET /api/expenses/{id}",status="404"}`)
+	assert.NotContains(t, out, "/api/expenses/"+strconv.Itoa(int(e.foreignE)), "в метках нет идентификаторов")
 }

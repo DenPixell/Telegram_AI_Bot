@@ -90,7 +90,8 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) {
 		writeError(w, r, err)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
+	// Secure выставляется по схеме PUBLIC_URL: true за HTTPS (профиль prod), false для localhost.
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure зависит от конфигурации
 		Name:     sessionCookie,
 		Value:    sess.ID,
 		Path:     "/",
@@ -107,7 +108,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request, _ domain.Actor) 
 		writeError(w, r, err)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: удаление cookie, Secure как при выдаче
 		Name: sessionCookie, Value: "", Path: "/", MaxAge: -1,
 		HttpOnly: true, Secure: s.secureCookie, SameSite: http.SameSiteLaxMode,
 	})

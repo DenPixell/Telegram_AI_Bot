@@ -57,7 +57,7 @@ type dictionaryFile struct {
 // LoadDictionary читает и проверяет словарь. Ошибка, если одна и та же форма (после стемминга)
 // указывает на разные категории: такие конфликты надо решить в файле.
 func LoadDictionary(path string) (*Dictionary, error) {
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) //nolint:gosec // G304: путь из конфига (SYNONYMS_PATH), не от пользователя
 	if err != nil {
 		return nil, fmt.Errorf("read dictionary: %w", err)
 	}

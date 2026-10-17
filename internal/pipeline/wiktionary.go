@@ -90,7 +90,7 @@ func (w *Wiktionary) Lookup(ctx context.Context, titles []string) (map[string]Re
 	if err != nil {
 		return nil, fmt.Errorf("wiktionary: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("wiktionary: status %d", resp.StatusCode)
 	}

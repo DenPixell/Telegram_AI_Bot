@@ -179,19 +179,39 @@ docker run --rm -it -p 3000:3000 -e API_URL=http://host.docker.internal:8080 -v 
 ## Разработка
 
 ```bash
-make run     # Postgres в Docker, сервер через go run
-make test    # go test -race ./...
-make vet
-make logs    # логи app и web
+make run      # Postgres в Docker, сервер через go run
+make test     # go test -race ./...
+make lint     # golangci-lint в Docker (.golangci.yml)
+make fuzz     # фаззинг парсера сумм и фильтра
+make logs     # логи app и web
+make metrics  # метрики Prometheus
 ```
 
-Тесты (testify, table-driven; общее покрытие около 65%, логика pipeline/llm/timezone — 85–95%):
+CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)): линтер, тесты с `-race` на сервисном Postgres и
+короткий фаззинг, сборка панели, сборка обоих Docker-образов.
+
+### Метрики и наблюдаемость
+
+`GET /metrics` на порту приложения отдаёт метрики в формате Prometheus. Наружу они не публикуются: nginx
+проксирует только `/api/`, а порт приложения в compose слушает 127.0.0.1.
+
+| Метрика | Что показывает |
+|---|---|
+| `llm_requests_total{provider,result}`, `llm_request_duration_seconds`, `llm_tokens_total{provider,kind}` | нагрузку и стоимость LLM, сбои провайдеров |
+| `filter_decisions_total{verdict,reason}` | сколько сообщений обработано без LLM, а сколько ушло в модель |
+| `category_source_total{source}` | откуда берутся категории: словарь, кэш, Викисловарь, LLM |
+| `telegram_updates_total{result}`, `telegram_send_errors_total{code}` | обработку апдейтов, дубли, блокировки бота |
+| `http_requests_total{method,route,status}`, `http_request_duration_seconds{route}` | API панели (по шаблону маршрута, без ID) |
+
+Логи — JSON (`log/slog`) с `request_id`; тексты сообщений и токены в логи не пишутся.
+
+Тесты (testify, table-driven; логика pipeline, llm и timezone покрыта на 85–95%):
 
 - unit: суммы, даты, фильтр (сценарии 9.4), словарь, категории с fake-тезаурусом, часовые пояса, периоды,
   LLM-клиент на mock-сервере (ретраи, breaker, fallback, квоты), Telegram-утилиты;
 - интеграционные на PostgreSQL через testcontainers (`internal/testutil/pgtest`): изоляция пользователей и
-  семей, конкурентные приглашения, оптимистичная блокировка, сервис семей, вход в панель, REST API (CSRF,
-  Origin, IDOR, 409), агент на fake-LLM;
+  семей, конкурентные приглашения, оптимистичная блокировка, сервис семей, онбординг, вход в панель, REST API
+  (CSRF, Origin, IDOR, 409, метрики), агент на fake-LLM;
 - fuzz: `go test ./internal/pipeline -fuzz FuzzAnalyze -fuzztime 30s`.
 
 Без Docker интеграционные тесты пропускаются; можно указать готовую БД: `TEST_DB_DSN=postgres://...`.

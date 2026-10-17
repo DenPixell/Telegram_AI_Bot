@@ -61,7 +61,7 @@ func newWorld(t *testing.T, opts ...func(*setup)) *world {
 	for _, o := range opts {
 		o(st)
 	}
-	client := llm.Client(llm.WithUsage(st.fake, s, "fake")) // учёт нужен для квот
+	client := llm.WithUsage(st.fake, s, "fake") // учёт нужен для квот
 	quota := pipeline.NewQuota(s, st.quotaUser, 1000, 0)
 	if st.quotaUser == 0 {
 		quota = pipeline.NewQuota(s, 100, 1000, 0)

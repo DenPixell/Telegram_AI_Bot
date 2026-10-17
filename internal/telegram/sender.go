@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"expense-bot/internal/metrics"
 )
 
 // Лимиты Telegram: около 30 сообщений в секунду всего и 1 в секунду в один чат.
@@ -58,18 +61,23 @@ func (s *Sender) sendOne(ctx context.Context, chatID int64, text string, markup 
 		if err == nil {
 			return nil
 		}
+		code := "network"
+		var e *APIError
+		if errors.As(err, &e) {
+			code = strconv.Itoa(e.Code)
+		}
+		metrics.TelegramSendErrors.Inc(code)
 		if IsBlocked(err) {
 			if s.onBlocked != nil {
 				s.onBlocked(ctx, chatID)
 			}
 			return err
 		}
-		var apiErr *APIError
-		if !errors.As(err, &apiErr) || apiErr.RetryAfter == 0 || attempt >= maxSendRetries || apiErr.RetryAfter > maxRetryAfter {
+		if e == nil || e.RetryAfter == 0 || attempt >= maxSendRetries || e.RetryAfter > maxRetryAfter {
 			return err
 		}
-		slog.WarnContext(ctx, "telegram rate limited", "retry_after", apiErr.RetryAfter.String())
-		s.delay(chatID, apiErr.RetryAfter)
+		slog.WarnContext(ctx, "telegram rate limited", "retry_after", e.RetryAfter.String())
+		s.delay(chatID, e.RetryAfter)
 	}
 }
 

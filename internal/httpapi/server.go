@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"expense-bot/internal/config"
+	"expense-bot/internal/metrics"
 	"expense-bot/internal/service"
 	"expense-bot/internal/storage/postgres"
 )
@@ -61,6 +62,9 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("GET /readyz", s.readyz)
+	// Метрики Prometheus. Наружу не публикуются: nginx проксирует только /api/,
+	// а порт приложения в compose слушает 127.0.0.1.
+	mux.Handle("GET /metrics", metrics.Handler())
 
 	if s.AuthMode == config.PanelAuthMagicLink {
 		mux.Handle("POST /api/auth/exchange", s.limited(s.authLimiter, http.HandlerFunc(s.exchange)))
@@ -91,7 +95,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusNotFound, "not_found", "Такого метода API нет")
 	})
-	return requestLog(recoverer(securityHeaders(mux)))
+	return requestLog(mux, recoverer(securityHeaders(mux)))
 }
 
 func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {

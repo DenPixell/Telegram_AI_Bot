@@ -1,4 +1,4 @@
-.PHONY: build run test vet lint fmt tidy db up down logs prod backup-now
+.PHONY: build run test vet lint fuzz metrics fmt tidy db up down logs prod backup-now
 
 -include .env
 export
@@ -16,8 +16,18 @@ test:
 vet:
 	go vet ./...
 
+# Линтер в Docker: локальная установка golangci-lint не нужна. Конфиг - .golangci.yml.
 lint:
-	golangci-lint run ./...
+	docker run --rm -v "$(CURDIR)":/app -v "$$(go env GOMODCACHE)":/go/pkg/mod -w /app golangci/golangci-lint:latest golangci-lint run ./...
+
+# Короткий фаззинг парсера сумм и фильтра.
+fuzz:
+	go test ./internal/pipeline -run '^$$' -fuzz '^FuzzAnalyze$$' -fuzztime 30s
+	go test ./internal/pipeline -run '^$$' -fuzz '^FuzzParseAmounts$$' -fuzztime 30s
+
+# Метрики Prometheus работающего приложения.
+metrics:
+	curl -s localhost:$${APP_PORT:-8080}/metrics
 
 fmt:
 	gofmt -w .

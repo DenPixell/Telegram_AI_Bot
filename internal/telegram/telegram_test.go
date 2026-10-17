@@ -51,7 +51,7 @@ func TestCommand(t *testing.T) {
 func TestAPIErrorsAndTokenRedaction(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.True(t, strings.HasPrefix(r.URL.Path, "/botSECRET-TOKEN/"))
-		io.WriteString(w, `{"ok":false,"error_code":403,"description":"Forbidden: bot was blocked by the user"}`)
+		_, _ = io.WriteString(w, `{"ok":false,"error_code":403,"description":"Forbidden: bot was blocked by the user"}`)
 	}))
 	defer srv.Close()
 

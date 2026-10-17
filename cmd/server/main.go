@@ -169,7 +169,10 @@ func run() error {
 	defer cancel()
 	httpErr := srv.Shutdown(shutdownCtx)
 	select {
-	case <-botDone:
+	case err := <-botDone:
+		if err != nil {
+			slog.Warn("telegram bot stopped with error", "err", err)
+		}
 	case <-shutdownCtx.Done():
 		slog.Warn("telegram bot did not stop in time")
 	}
@@ -189,11 +192,12 @@ func healthcheck() int {
 		addr = "127.0.0.1" + addr
 	}
 	c := http.Client{Timeout: 3 * time.Second}
-	resp, err := c.Get("http://" + addr + "/healthz")
+	// Адрес - собственный HTTP_ADDR процесса, а не пользовательский ввод.
+	resp, err := c.Get("http://" + addr + "/healthz") //nolint:gosec,noctx // G704: локальный healthcheck
 	if err != nil {
 		return 1
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return 1
 	}

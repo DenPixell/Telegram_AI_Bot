@@ -280,7 +280,7 @@ func (x *executor) resolve(ctx context.Context, t targetArgs) ([]domain.Expense,
 	}
 	from, to, err := p.Range(x.today, domain.Date{}, domain.Date{})
 	if err != nil {
-		return nil, fmt.Errorf("%w: period: %v", errBadTarget, err)
+		return nil, fmt.Errorf("%w: period: %w", errBadTarget, err)
 	}
 	f := domain.ExpenseFilter{Scope: scope, From: from, To: to, Limit: maxCandidates}
 	if query != "" {

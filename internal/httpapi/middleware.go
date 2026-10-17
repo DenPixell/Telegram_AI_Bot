@@ -7,18 +7,22 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"expense-bot/internal/metrics"
 )
 
 type ctxKey int
 
 const requestIDKey ctxKey = iota
 
-// requestLog присваивает запросу correlation id и пишет строку лога по завершении.
-// Query string не логируется: в нём могут быть секреты.
-func requestLog(next http.Handler) http.Handler {
+// requestLog присваивает запросу correlation id, пишет строку лога и метрики по завершении.
+// Query string не логируется: в нём могут быть секреты. В метриках - шаблон маршрута из mux
+// («/api/expenses/{id}»), а не путь, чтобы число рядов не росло от идентификаторов.
+func requestLog(mux *http.ServeMux, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b := make([]byte, 8)
 		_, _ = rand.Read(b)
@@ -37,6 +41,12 @@ func requestLog(next http.Handler) http.Handler {
 		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
 			level = slog.LevelDebug
 		}
+		route := "unmatched"
+		if _, pattern := mux.Handler(r); pattern != "" {
+			route = pattern
+		}
+		metrics.HTTPRequests.Inc(r.Method, route, strconv.Itoa(rec.status))
+		metrics.HTTPDuration.ObserveDuration(time.Since(start), route)
 		slog.Log(ctx, level, "http request", "request_id", id, "method", r.Method, "path", r.URL.Path,
 			"status", rec.status, "duration", time.Since(start).String())
 	})

@@ -49,7 +49,7 @@ func stripPrefixes(s string) string {
 		for _, p := range prefixes {
 			rest, ok := strings.CutPrefix(s, p)
 			// Префикс - отдельное слово: после него пробел или двоеточие (или точка в «г.»).
-			if !ok || rest == "" || !(rest[0] == ' ' || rest[0] == ':' || strings.HasSuffix(p, ".")) {
+			if !ok || rest == "" || (rest[0] != ' ' && rest[0] != ':' && !strings.HasSuffix(p, ".")) {
 				continue
 			}
 			rest = strings.TrimLeft(rest, " :")

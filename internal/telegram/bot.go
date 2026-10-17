@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"expense-bot/internal/metrics"
 	"expense-bot/internal/storage/postgres"
 )
 
@@ -141,6 +142,7 @@ func (b *Bot) dispatch(ctx context.Context, up Update) {
 		return
 	}
 	if !isNew {
+		metrics.TelegramUpdates.Inc("duplicate")
 		return // повторная доставка
 	}
 

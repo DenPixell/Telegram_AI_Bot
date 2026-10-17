@@ -13,6 +13,7 @@ import (
 	"expense-bot/internal/agent"
 	"expense-bot/internal/config"
 	"expense-bot/internal/domain"
+	"expense-bot/internal/metrics"
 	"expense-bot/internal/onboarding"
 	"expense-bot/internal/pipeline"
 	"expense-bot/internal/service"
@@ -86,10 +87,13 @@ func (h *Handler) HandleUpdate(ctx context.Context, up Update) {
 	}
 	switch {
 	case err == nil || errors.Is(err, context.Canceled):
+		metrics.TelegramUpdates.Inc("processed")
 	case IsBlocked(err):
+		metrics.TelegramUpdates.Inc("processed")
 		// Пользователь заблокировал бота: штатная ситуация, он уже помечен неактивным.
 		slog.InfoContext(ctx, "user blocked the bot", "update_id", up.UpdateID)
 	default:
+		metrics.TelegramUpdates.Inc("failed")
 		slog.ErrorContext(ctx, "update failed", "update_id", up.UpdateID, "err", err)
 		if chatID != 0 {
 			_ = h.Sender.Send(ctx, chatID, msgInternal, nil)
