@@ -8,24 +8,27 @@ on:
 permissions:
   contents: read
 
+# Раннер закреплён: ubuntu-latest переезжает на Ubuntu 26 (19.10.2026), обновление - осознанно.
+# Экшены - на мажорных версиях с Node 24 (Node 20 на раннерах устарел).
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: latest
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16-alpine
@@ -41,8 +44,8 @@ jobs:
       # pgtest создаёт на этом сервере отдельную БД для каждого тестового пакета.
       TEST_DB_DSN: postgres://app:app@localhost:5432/expenses?sslmode=disable
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
       - run: go vet ./...
@@ -55,13 +58,13 @@ jobs:
           go test ./internal/pipeline -run '^$' -fuzz '^FuzzParseAmounts$' -fuzztime 20s
 
   web:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -70,13 +73,13 @@ jobs:
       - run: npm run build
 
   docker:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [lint, test, web]
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
       - name: Build backend image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/Dockerfile
@@ -84,7 +87,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Build panel image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: web
           push: false
