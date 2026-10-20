@@ -39,7 +39,7 @@ func NewWiktionary(endpoint string, timeout time.Duration) *Wiktionary {
 }
 
 // Правила Wikimedia требуют осмысленный User-Agent с контактом.
-const wikiUserAgent = "expense-bot/1.0 (https://github.com/DenPixell/Telegram_Ai_Budget_Bot)"
+const wikiUserAgent = "expense-bot/1.0 (https://github.com/DenPixell/Telegram_AI_Bot)"
 
 const maxWikiResponse = 4 << 20
 
