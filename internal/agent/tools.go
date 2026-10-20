@@ -97,7 +97,7 @@ func (x *executor) add(ctx context.Context, raw string) (callResult, error) {
 	}
 	e := domain.Expense{
 		Amount:   amount,
-		Category: domain.ParseCategory(args.Category),
+		Category: x.a.cats().Parse(args.Category),
 		SpentAt:  date,
 		Title:    clip(strings.ToLower(strings.TrimSpace(args.Title)), service.MaxTitleLen),
 		Comment:  strings.TrimSpace(x.text),
@@ -173,7 +173,7 @@ func (x *executor) list(ctx context.Context, raw string) (callResult, error) {
 	var cat domain.Category
 	if args.Category != "" {
 		cat = domain.Category(args.Category)
-		if !cat.Valid() {
+		if !x.a.cats().Valid(cat) {
 			return callResult{feedback: fmt.Sprintf("category %q не из списка", args.Category)}, nil
 		}
 		f.Categories = []domain.Category{cat}
@@ -373,7 +373,7 @@ func (x *executor) parseChanges(raw string) (updateArgs, string) {
 	}
 	if args.Category != nil && *args.Category != "" {
 		c := domain.Category(*args.Category)
-		if !c.Valid() {
+		if !x.a.cats().Valid(c) {
 			return updateArgs{}, fmt.Sprintf("category %q не из списка", *args.Category)
 		}
 		u.Category = &c

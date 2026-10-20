@@ -10,7 +10,7 @@ import (
 )
 
 func (s *Server) categories(w http.ResponseWriter, _ *http.Request, _ domain.Actor) {
-	writeJSON(w, http.StatusOK, map[string]any{"items": domain.Categories})
+	writeJSON(w, http.StatusOK, map[string]any{"items": mapSlice(s.Categories.List(), categoryDTOFrom)})
 }
 
 // parseFilter разбирает фильтры: ?member_id=&from=&to=&category=&q=&limit=&offset=
@@ -44,7 +44,7 @@ func (s *Server) parseFilter(w http.ResponseWriter, r *http.Request, a domain.Ac
 	for _, raw := range q["category"] {
 		for _, c := range strings.Split(raw, ",") {
 			cat := domain.Category(strings.TrimSpace(c))
-			if !cat.Valid() {
+			if !s.Categories.Valid(cat) {
 				badRequest(w, "unknown category %q", c)
 				return domain.ExpenseFilter{}, false
 			}

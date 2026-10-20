@@ -1,12 +1,14 @@
 import { useState } from "react";
 import type { Summary } from "../api";
-import { addDays, categoryMeta, money, moneyCompact, shortDay } from "../format";
+import { useCategories } from "../categories";
+import { addDays, money, moneyCompact, shortDay } from "../format";
 
 // Графики одного ряда: один цвет (--series), подписи и значения - цветом текста.
 // Таблица значений - это список трат и подписи у полос.
 
 // Траты по категориям: горизонтальные полосы, значение у конца полосы.
 export function CategoryBars({ data }: { data: Summary["by_category"] }) {
+  const { meta: categoryMeta } = useCategories();
   const max = Math.max(...data.map((d) => Number(d.total)), 1);
   return (
     <div className="bars" role="list" aria-label="Траты по категориям">

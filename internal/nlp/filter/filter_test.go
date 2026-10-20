@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"expense-bot/internal/nlp/lexicon"
+	"expense-bot/internal/testutil/testcats"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,18 +24,18 @@ func TestAnalyzeSimpleExpenseWithoutLLM(t *testing.T) {
 		cat    domain.Category
 		date   string // "" - сегодня (нулевая дата)
 	}{
-		{"Кофе 350", rub(350), "кофе", domain.CategoryFood, ""},
-		{"Поход в рестик 7698 вчера", rub(7698), "ресторан", domain.CategoryFood, "2026-10-15"},
-		{"шаурма 560", rub(560), "шаурма", domain.CategoryFood, ""},
-		{"такси 1200 вчера", rub(1200), "такси", domain.CategoryTransport, "2026-10-15"},
-		{"350 кофе", rub(350), "кофе", domain.CategoryFood, ""},
-		{"1 200 р на аптеку", rub(1200), "аптека", domain.CategoryHealth, ""},
-		{"1.5к бензин", rub(1500), "бензин", domain.CategoryTransport, ""},
-		{"Я потратил вчера 550 на шавуху", rub(550), "шаурма", domain.CategoryFood, "2026-10-15"},
-		{"мы купили продукты 2400", rub(2400), "продукты", domain.CategoryFood, ""},
-		{"день рождения 6000 01.05.2025", rub(6000), "праздник", domain.CategoryEntertainment, "2025-05-01"},
-		{"кофе 350 5 марта", rub(350), "кофе", domain.CategoryFood, "2026-03-05"},
-		{"Вкусно и точка 640", rub(640), "фастфуд", domain.CategoryFood, ""},
+		{"Кофе 350", rub(350), "кофе", testcats.Food, ""},
+		{"Поход в рестик 7698 вчера", rub(7698), "ресторан", testcats.Food, "2026-10-15"},
+		{"шаурма 560", rub(560), "шаурма", testcats.Food, ""},
+		{"такси 1200 вчера", rub(1200), "такси", testcats.Transport, "2026-10-15"},
+		{"350 кофе", rub(350), "кофе", testcats.Food, ""},
+		{"1 200 р на аптеку", rub(1200), "аптека", testcats.Health, ""},
+		{"1.5к бензин", rub(1500), "бензин", testcats.Transport, ""},
+		{"Я потратил вчера 550 на шавуху", rub(550), "шаурма", testcats.Food, "2026-10-15"},
+		{"мы купили продукты 2400", rub(2400), "продукты", testcats.Food, ""},
+		{"день рождения 6000 01.05.2025", rub(6000), "праздник", testcats.Entertainment, "2025-05-01"},
+		{"кофе 350 5 марта", rub(350), "кофе", testcats.Food, "2026-03-05"},
+		{"Вкусно и точка 640", rub(640), "фастфуд", testcats.Food, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.text, func(t *testing.T) {

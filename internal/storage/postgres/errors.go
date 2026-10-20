@@ -22,6 +22,8 @@ const (
 	constraintMembersPK   = "family_members_pkey"
 	constraintFamilyOwner = "uniq_family_owner"
 	constraintInviteCode  = "invites_code_key"
+	constraintExpenseCat  = "expenses_category_fkey"
+	constraintLearnedCat  = "learned_terms_category_fkey"
 )
 
 // mapErr переводит ошибки драйвера в доменные, сохраняя исходную в цепочке.
@@ -46,6 +48,9 @@ func mapErr(op string, err error) error {
 			}
 			return fmt.Errorf("%s: %w: %s", op, domain.ErrConflict, pgErr.ConstraintName)
 		case pgForeignKeyViolation:
+			if pgErr.ConstraintName == constraintExpenseCat || pgErr.ConstraintName == constraintLearnedCat {
+				return fmt.Errorf("%s: %w: unknown category", op, domain.ErrValidation)
+			}
 			return fmt.Errorf("%s: %w: %s", op, domain.ErrNotFound, pgErr.ConstraintName)
 		case pgCheckViolation:
 			return fmt.Errorf("%s: %w: %s", op, domain.ErrValidation, pgErr.ConstraintName)

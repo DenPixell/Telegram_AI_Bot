@@ -118,8 +118,8 @@ func (a *Agent) resolvePending(ctx context.Context, actor domain.Actor, p pendin
 		if d.Verdict == filter.VerdictAgent && d.Expense != nil && len(d.Expense.Words) == 0 {
 			e := p.expense
 			e.Amount, e.SpentAt = d.Expense.Amount, d.Expense.Date
-			if !e.Category.Valid() {
-				e.Category = domain.CategoryOther
+			if !a.cats().Valid(e.Category) {
+				e.Category = a.cats().Fallback()
 			}
 			r, err := a.create(ctx, actor, e, today, d.Expense.Large)
 			return r, true, err
@@ -210,7 +210,7 @@ func (a *Agent) runLLM(ctx context.Context, actor domain.Actor, text string, d f
 	}
 	ctx = llm.WithCaller(ctx, llm.Caller{UserID: actor.UserID, FamilyID: actor.FamilyID})
 
-	ts := tools()
+	ts := tools(a.cats())
 	sys := systemPrompt(today)
 	req := llm.Request{MaxTokens: a.cfg.MaxTokens, Temperature: llm.Float(0)}
 	if a.cfg.Mode == config.AgentModeJSON {
@@ -286,11 +286,14 @@ func (a *Agent) learn(ctx context.Context, d filter.Decision, added []domain.Exp
 		return
 	}
 	e := added[0]
-	if e.Category == domain.CategoryOther {
+	if e.Category == a.cats().Fallback() {
 		return // «другое» - не знание о слове
 	}
 	a.cat.Learn(ctx, d.Expense.Words[0], lexicon.Term{Title: e.Title, Category: e.Category})
 }
+
+// cats - справочник категорий (загружен из БД, по нему проверен словарь).
+func (a *Agent) cats() *domain.CategorySet { return a.dict.Categories() }
 
 // degrade - LLM недоступна: простую трату записываем в «другое» без модели,
 // иначе шаблонный ответ.
@@ -304,7 +307,7 @@ func (a *Agent) degrade(ctx context.Context, actor domain.Actor, d filter.Decisi
 	}
 	if pe := d.Expense; pe != nil && pe.Amount > 0 && len(pe.Words) > 0 {
 		r, cerr := a.create(ctx, actor, domain.Expense{
-			Amount: pe.Amount, Category: domain.CategoryOther, Title: strings.Join(pe.Words, " "),
+			Amount: pe.Amount, Category: a.cats().Fallback(), Title: strings.Join(pe.Words, " "),
 			SpentAt: pe.Date, Comment: pe.Comment,
 		}, today, pe.Large)
 		if cerr != nil {

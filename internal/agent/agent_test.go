@@ -20,6 +20,7 @@ import (
 	"expense-bot/internal/service"
 	"expense-bot/internal/storage/postgres"
 	"expense-bot/internal/testutil/pgtest"
+	"expense-bot/internal/testutil/testcats"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -53,10 +54,10 @@ func newWorld(t *testing.T, opts ...func(*setup)) *world {
 	anya, _ := fams.Actor(ctx, 1)
 	borya, _ := fams.Actor(ctx, 2)
 
-	dict, err := lexicon.LoadDictionary("../../config/synonyms.yaml")
+	dict, err := lexicon.LoadDictionary("../../config/synonyms.yaml", testcats.Set())
 	require.NoError(t, err)
 	cat := category.NewCategorizer(dict, s, nil, time.Second) // без онлайн-тезауруса
-	exp := service.NewExpenses(s, "Europe/Moscow")
+	exp := service.NewExpenses(s, testcats.Set(), "Europe/Moscow")
 	today, err := exp.Today(ctx, 1)
 	require.NoError(t, err)
 

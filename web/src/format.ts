@@ -1,21 +1,6 @@
 // Форматирование для показа. Деньги приходят строкой "350.00" и считаются только на сервере;
 // здесь число нужно лишь для отображения и ширины столбиков.
 
-export type Category = "еда" | "транспорт" | "жильё" | "развлечения" | "здоровье" | "покупки" | "другое";
-
-export const categories: { id: Category; emoji: string; label: string }[] = [
-  { id: "еда", emoji: "🍽️", label: "Еда" },
-  { id: "транспорт", emoji: "🚕", label: "Транспорт" },
-  { id: "жильё", emoji: "🏠", label: "Жильё" },
-  { id: "развлечения", emoji: "🎉", label: "Развлечения" },
-  { id: "здоровье", emoji: "💊", label: "Здоровье" },
-  { id: "покупки", emoji: "🛍️", label: "Покупки" },
-  { id: "другое", emoji: "📦", label: "Другое" },
-];
-
-export const categoryMeta = (c: string) =>
-  categories.find((x) => x.id === c) ?? { id: c as Category, emoji: "📦", label: c };
-
 const rub = new Intl.NumberFormat("ru-RU", { style: "currency", currency: "RUB", maximumFractionDigits: 2, minimumFractionDigits: 0 });
 const rubCompact = new Intl.NumberFormat("ru-RU", { notation: "compact", maximumFractionDigits: 1 });
 

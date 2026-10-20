@@ -64,6 +64,11 @@ func run() error {
 		return err
 	}
 	store := postgres.New(pool)
+	// Справочник категорий - данные в БД; набор читается один раз при старте.
+	cats, err := store.Categories(ctx)
+	if err != nil {
+		return err
+	}
 
 	families := service.NewFamilies(store, service.FamiliesConfig{
 		MaxMembers:    cfg.Limits.MaxFamilyMembers,
@@ -71,10 +76,10 @@ func run() error {
 		InviteMaxUses: cfg.Limits.InviteMaxUses,
 		DefaultTZ:     cfg.AppTZ,
 	})
-	expenses := service.NewExpenses(store, cfg.AppTZ)
+	expenses := service.NewExpenses(store, cats, cfg.AppTZ)
 	auth := service.NewAuth(store)
 
-	dict, err := lexicon.LoadDictionary(cfg.Synonyms.Path)
+	dict, err := lexicon.LoadDictionary(cfg.Synonyms.Path, cats)
 	if err != nil {
 		return err
 	}
@@ -137,6 +142,7 @@ func run() error {
 		Families:        families,
 		Expenses:        expenses,
 		Auth:            auth,
+		Categories:      cats,
 		AuthMode:        cfg.Panel.AuthMode,
 		PanelFamilyID:   cfg.Panel.FamilyID,
 		PublicURL:       cfg.Panel.PublicURL,

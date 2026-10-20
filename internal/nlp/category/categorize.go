@@ -126,7 +126,7 @@ func (c *Categorizer) categorize(ctx context.Context, words []string) Guess {
 
 // Learn сохраняет категорию, которую определила LLM, чтобы в следующий раз обойтись без неё.
 func (c *Categorizer) Learn(ctx context.Context, word string, term lexicon.Term) {
-	if c.store == nil || !term.Category.Valid() {
+	if c.store == nil || !c.dict.Categories().Valid(term.Category) {
 		return
 	}
 	word = textnorm.Normalize(word)

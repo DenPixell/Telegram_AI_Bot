@@ -15,6 +15,7 @@ import (
 	"expense-bot/internal/service"
 	"expense-bot/internal/storage/postgres"
 	"expense-bot/internal/testutil/pgtest"
+	"expense-bot/internal/testutil/testcats"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -208,7 +209,7 @@ func TestDeleteMyData(t *testing.T) {
 func TestExpensesValidation(t *testing.T) {
 	s, f := setup(t, 10)
 	owner, _ := ownerWithFamily(t, s, f)
-	exp := service.NewExpenses(s, "Europe/Moscow")
+	exp := service.NewExpenses(s, testcats.Set(), "Europe/Moscow")
 	today, err := exp.Today(ctx, 1)
 	require.NoError(t, err)
 
@@ -217,13 +218,13 @@ func TestExpensesValidation(t *testing.T) {
 		e    domain.Expense
 		ok   bool
 	}{
-		{"ok", domain.Expense{Amount: 35000, Category: domain.CategoryFood}, true},
-		{"zero amount", domain.Expense{Amount: 0, Category: domain.CategoryFood}, false},
+		{"ok", domain.Expense{Amount: 35000, Category: testcats.Food}, true},
+		{"zero amount", domain.Expense{Amount: 0, Category: testcats.Food}, false},
 		{"unknown category", domain.Expense{Amount: 1, Category: "крипта"}, false},
-		{"tomorrow is allowed", domain.Expense{Amount: 1, Category: domain.CategoryFood, SpentAt: today.AddDays(1)}, true},
-		{"day after tomorrow", domain.Expense{Amount: 1, Category: domain.CategoryFood, SpentAt: today.AddDays(2)}, false},
-		{"six years ago", domain.Expense{Amount: 1, Category: domain.CategoryFood, SpentAt: today.AddDays(-6 * 366)}, false},
-		{"foreign user", domain.Expense{UserID: 999, Amount: 1, Category: domain.CategoryFood}, false},
+		{"tomorrow is allowed", domain.Expense{Amount: 1, Category: testcats.Food, SpentAt: today.AddDays(1)}, true},
+		{"day after tomorrow", domain.Expense{Amount: 1, Category: testcats.Food, SpentAt: today.AddDays(2)}, false},
+		{"six years ago", domain.Expense{Amount: 1, Category: testcats.Food, SpentAt: today.AddDays(-6 * 366)}, false},
+		{"foreign user", domain.Expense{UserID: 999, Amount: 1, Category: testcats.Food}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -237,12 +238,12 @@ func TestExpensesValidation(t *testing.T) {
 		})
 	}
 
-	long, err := exp.Create(ctx, owner, domain.Expense{Amount: 1, Category: domain.CategoryOther, Comment: strings.Repeat("я", 300)})
+	long, err := exp.Create(ctx, owner, domain.Expense{Amount: 1, Category: testcats.Other, Comment: strings.Repeat("я", 300)})
 	require.NoError(t, err)
 	assert.Len(t, []rune(long.Comment), domain.MaxCommentLen, "комментарий обрезается, а не отвергается")
 
 	// NUL-символ (JSON \u0000 из панели) не должен превращаться в 500 от PostgreSQL.
-	nul, err := exp.Create(ctx, owner, domain.Expense{Amount: 1, Category: domain.CategoryOther, Title: "ко\x00фе", Comment: "\x00"})
+	nul, err := exp.Create(ctx, owner, domain.Expense{Amount: 1, Category: testcats.Other, Title: "ко\x00фе", Comment: "\x00"})
 	require.NoError(t, err)
 	assert.Equal(t, "кофе", nul.Title)
 }

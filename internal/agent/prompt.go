@@ -55,12 +55,8 @@ const (
 
 // tools - схемы компактные: каждая строка схемы стоит токенов в каждом запросе.
 // user_id и family_id в схемах нет и быть не может: они берутся из контекста.
-func tools() []llm.Tool {
-	cats := make([]string, len(domain.Categories))
-	for i, c := range domain.Categories {
-		cats[i] = string(c)
-	}
-	catEnum, _ := json.Marshal(cats)
+func tools(cats *domain.CategorySet) []llm.Tool {
+	catEnum, _ := json.Marshal(cats.Names())
 	target := `"target":{"type":"string","enum":["last","search"]},"query":{"type":"string","description":"что искать: «такси»"},"period":{"type":"string","enum":["today","yesterday","week","month","last_month","all"]}`
 	return []llm.Tool{
 		{

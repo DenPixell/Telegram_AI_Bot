@@ -33,6 +33,7 @@ import (
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"expense-bot/internal/storage/postgres"
+	"expense-bot/internal/testutil/testcats"
 )
 
 var (
@@ -90,11 +91,13 @@ func New(t testing.TB) (*postgres.Store, *pgxpool.Pool) {
 	return postgres.New(pool), pool
 }
 
-// Truncate очищает все таблицы приложения (кроме служебной таблицы goose).
+// Truncate очищает все таблицы приложения, кроме служебной таблицы goose и справочников,
+// которые заполняет миграция: справочник категорий возвращается к начальному набору.
 func Truncate(t testing.TB, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
-	rows, err := pool.Query(ctx, `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'goose_db_version'`)
+	rows, err := pool.Query(ctx, `SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+		AND tablename NOT IN ('goose_db_version', 'categories')`)
 	if err != nil {
 		t.Fatalf("list tables: %v", err)
 	}
@@ -110,6 +113,29 @@ func Truncate(t testing.TB, pool *pgxpool.Pool) {
 	}
 	if _, err := pool.Exec(ctx, `TRUNCATE `+strings.Join(names, ", ")+` RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("truncate: %v", err)
+	}
+	resetCategories(t, pool)
+}
+
+// resetCategories убирает категории, добавленные тестами, и восстанавливает начальный набор.
+func resetCategories(t testing.TB, pool *pgxpool.Pool) {
+	t.Helper()
+	ctx := context.Background()
+	seed := testcats.List()
+	names := make([]string, len(seed))
+	for i, c := range seed {
+		names[i] = string(c.Name)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM categories WHERE name <> ALL($1)`, names); err != nil {
+		t.Fatalf("reset categories: %v", err)
+	}
+	for _, c := range seed {
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO categories (name, title, emoji, position, is_fallback) VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (name) DO UPDATE SET title = $2, emoji = $3, position = $4, is_fallback = $5`,
+			string(c.Name), c.Title, c.Emoji, c.Position, c.Fallback); err != nil {
+			t.Fatalf("reset categories: %v", err)
+		}
 	}
 }
 

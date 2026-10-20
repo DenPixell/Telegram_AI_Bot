@@ -10,6 +10,7 @@ import (
 
 	"expense-bot/internal/domain"
 	"expense-bot/internal/service"
+	"expense-bot/internal/testutil/testcats"
 )
 
 // memStore - хранилище в памяти: сервис трат зависит от интерфейса, а не от PostgreSQL,
@@ -51,7 +52,7 @@ func (m *memStore) CreateExpense(_ context.Context, e domain.Expense) (domain.Ex
 func TestCreateExpenseRulesWithoutDatabase(t *testing.T) {
 	owner := domain.Actor{UserID: 1, FamilyID: 10, Role: domain.RoleOwner}
 	member := domain.Actor{UserID: 2, FamilyID: 10, Role: domain.RoleMember}
-	coffee := domain.Expense{Amount: 35000, Category: domain.CategoryFood, Title: "кофе"}
+	coffee := domain.Expense{Amount: 35000, Category: testcats.Food, Title: "кофе"}
 
 	tests := []struct {
 		name     string
@@ -79,7 +80,7 @@ func TestCreateExpenseRulesWithoutDatabase(t *testing.T) {
 					3: {UserID: 3, FamilyID: 20, Role: domain.RoleOwner},
 				},
 			}
-			svc := service.NewExpenses(st, "UTC")
+			svc := service.NewExpenses(st, testcats.Set(), "UTC")
 			got, err := svc.Create(context.Background(), tt.actor, tt.expense(coffee))
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -99,7 +100,7 @@ func TestTodayUsesUserTimezone(t *testing.T) {
 		users:   map[int64]domain.User{2: {TelegramID: 2, Timezone: "Asia/Novosibirsk"}},
 		members: map[int64]domain.Member{},
 	}
-	svc := service.NewExpenses(st, "UTC")
+	svc := service.NewExpenses(st, testcats.Set(), "UTC")
 	today, err := svc.Today(context.Background(), 2)
 	require.NoError(t, err)
 	loc, err := time.LoadLocation("Asia/Novosibirsk")

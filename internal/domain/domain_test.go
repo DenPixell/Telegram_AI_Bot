@@ -44,9 +44,3 @@ func TestDate(t *testing.T) {
 		t.Error("expected error for invalid date")
 	}
 }
-
-func TestParseCategory(t *testing.T) {
-	if ParseCategory("еда") != CategoryFood || ParseCategory("крипта") != CategoryOther {
-		t.Error("ParseCategory")
-	}
-}

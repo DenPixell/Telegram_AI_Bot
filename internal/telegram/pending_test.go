@@ -17,6 +17,7 @@ import (
 	"expense-bot/internal/nlp/lexicon"
 	"expense-bot/internal/onboarding"
 	"expense-bot/internal/service"
+	"expense-bot/internal/testutil/testcats"
 )
 
 // Регрессия из проверки по ТЗ: новый пользователь первым сообщением пишет «кофе 350» -
@@ -25,8 +26,8 @@ func TestFirstExpenseOfNewUserIsRecordedAfterOnboarding(t *testing.T) {
 	ctx := context.Background()
 	s, tg, b, sender := newBroadcaster(t)
 	fams := service.NewFamilies(s, service.FamiliesConfig{MaxMembers: 10, InviteTTL: time.Hour, InviteMaxUses: 10, DefaultTZ: "Europe/Moscow"})
-	exp := service.NewExpenses(s, "Europe/Moscow")
-	dict, err := lexicon.LoadDictionary("../../config/synonyms.yaml")
+	exp := service.NewExpenses(s, testcats.Set(), "Europe/Moscow")
+	dict, err := lexicon.LoadDictionary("../../config/synonyms.yaml", testcats.Set())
 	require.NoError(t, err)
 	cat := category.NewCategorizer(dict, nil, nil, time.Second)
 	ag := agent.New(llm.NewFake(), exp, dict, cat, filter.NewAnalyzer(dict, cat, 300), nil, agent.Config{Mode: "tools", MaxTokens: 200})
@@ -68,8 +69,8 @@ func TestInviteCodeIsNotMistakenForExpense(t *testing.T) {
 	users(t, s, 1)
 	_, inv, err := fams.CreateFamily(ctx, 1, "Ивановы")
 	require.NoError(t, err)
-	exp := service.NewExpenses(s, "Europe/Moscow")
-	dict, _ := lexicon.LoadDictionary("../../config/synonyms.yaml")
+	exp := service.NewExpenses(s, testcats.Set(), "Europe/Moscow")
+	dict, _ := lexicon.LoadDictionary("../../config/synonyms.yaml", testcats.Set())
 	cat := category.NewCategorizer(dict, nil, nil, time.Second)
 	h := NewHandler(HandlerDeps{
 		Store: s, Families: fams, Sender: sender, API: NewAPI("http://127.0.0.1:9", "x"), Broadcast: b,
@@ -93,8 +94,8 @@ func TestLeaveAndDeleteConfirmedByText(t *testing.T) {
 	for _, id := range []int64{1, 2} {
 		require.NoError(t, s.SetUserState(ctx, id, domain.StateActive, nil))
 	}
-	exp := service.NewExpenses(s, "UTC")
-	dict, _ := lexicon.LoadDictionary("../../config/synonyms.yaml")
+	exp := service.NewExpenses(s, testcats.Set(), "UTC")
+	dict, _ := lexicon.LoadDictionary("../../config/synonyms.yaml", testcats.Set())
 	cat := category.NewCategorizer(dict, nil, nil, time.Second)
 	h := NewHandler(HandlerDeps{
 		Store: s, Families: fams, Sender: sender, API: NewAPI("http://127.0.0.1:9", "x"), Broadcast: b,

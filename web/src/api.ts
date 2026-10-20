@@ -14,6 +14,7 @@ export interface Summary {
   by_member: { user_id: number; total: string; count: number }[];
   by_day: { date: string; total: string }[];
 }
+export interface CategoryInfo { name: string; title: string; emoji: string }
 export interface Member { user_id: number; display_name: string; username: string; role: "owner" | "member"; relation: string; joined_at: string }
 export interface Invite { id: number; code: string; link?: string; expires_at: string; max_uses: number; used_count: number; created_at: string }
 
@@ -78,6 +79,7 @@ export const api = {
   },
   deleteExpense: (id: number) => request<void>("DELETE", `/api/expenses/${id}`),
 
+  categories: () => request<{ items: CategoryInfo[] }>("GET", "/api/categories").then((r) => r.items),
   family: () => request<Family>("GET", "/api/family"),
   updateFamily: (name: string, timezone: string) => request<Family>("PUT", "/api/family", { name, timezone }),
   members: () => request<{ items: Member[] }>("GET", "/api/members").then((r) => r.items),

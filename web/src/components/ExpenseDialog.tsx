@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, ApiError, type Expense, type Member } from "../api";
-import { categories, money, parseMoneyInput, todayISO } from "../format";
+import { useCategories } from "../categories";
+import { money, parseMoneyInput, todayISO } from "../format";
 import { Confirm, Modal, useToast } from "./ui";
 
 // Создание и редактирование траты. Конфликт версий (трату изменили в боте) -> 409:
@@ -9,9 +10,10 @@ export function ExpenseDialog({ expense, members, meID, onClose, onSaved }: {
   expense: Expense | null; members: Member[]; meID: number; onClose: () => void; onSaved: () => void;
 }) {
   const toast = useToast();
+  const { list: categories } = useCategories();
   const isNew = expense === null;
   const [amount, setAmount] = useState(expense ? String(Number(expense.amount)).replace(".", ",") : "");
-  const [category, setCategory] = useState(expense?.category ?? "еда");
+  const [category, setCategory] = useState(expense?.category ?? categories[0]?.id ?? "");
   const [date, setDate] = useState(expense?.spent_at ?? todayISO());
   const [title, setTitle] = useState(expense?.title ?? "");
   const [comment, setComment] = useState(expense?.comment ?? "");

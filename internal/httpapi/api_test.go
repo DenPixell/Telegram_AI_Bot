@@ -20,6 +20,7 @@ import (
 	"expense-bot/internal/service"
 	"expense-bot/internal/storage/postgres"
 	"expense-bot/internal/testutil/pgtest"
+	"expense-bot/internal/testutil/testcats"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -57,16 +58,16 @@ func newEnv(t *testing.T, mode string) *env {
 	owner, _ := fams.Actor(ctx, 1)
 	foreign, _ := fams.Actor(ctx, 3)
 
-	exp := service.NewExpenses(s, "Europe/Moscow")
-	_, err = exp.Create(ctx, owner, domain.Expense{Amount: 35000, Category: domain.CategoryFood, Title: "кофе"})
+	exp := service.NewExpenses(s, testcats.Set(), "Europe/Moscow")
+	_, err = exp.Create(ctx, owner, domain.Expense{Amount: 35000, Category: testcats.Food, Title: "кофе"})
 	require.NoError(t, err)
-	_, err = exp.Create(ctx, owner, domain.Expense{UserID: 2, Amount: 120000, Category: domain.CategoryTransport, Title: "такси"})
+	_, err = exp.Create(ctx, owner, domain.Expense{UserID: 2, Amount: 120000, Category: testcats.Transport, Title: "такси"})
 	require.NoError(t, err)
-	fe, err := exp.Create(ctx, foreign, domain.Expense{Amount: 99900, Category: domain.CategoryFood, Title: "ресторан"})
+	fe, err := exp.Create(ctx, foreign, domain.Expense{Amount: 99900, Category: testcats.Food, Title: "ресторан"})
 	require.NoError(t, err)
 
 	auth := service.NewAuth(s)
-	api := New(Deps{
+	api := New(Deps{Categories: testcats.Set(),
 		DB: s, Store: s, Families: fams, Expenses: exp, Auth: auth,
 		AuthMode: mode, PanelFamilyID: owner.FamilyID, PublicURL: origin,
 		BotUsername: func() string { return "test_bot" },
@@ -295,7 +296,7 @@ func TestMetricsUseRoutePatterns(t *testing.T) {
 func TestNoneModeWithoutFamilyExplainsSetup(t *testing.T) {
 	s, _ := pgtest.New(t)
 	fams := service.NewFamilies(s, service.FamiliesConfig{MaxMembers: 10, InviteTTL: time.Hour, InviteMaxUses: 10, DefaultTZ: "UTC"})
-	api := New(Deps{DB: s, Store: s, Families: fams, Expenses: service.NewExpenses(s, "UTC"), Auth: service.NewAuth(s),
+	api := New(Deps{Categories: testcats.Set(), DB: s, Store: s, Families: fams, Expenses: service.NewExpenses(s, testcats.Set(), "UTC"), Auth: service.NewAuth(s),
 		AuthMode: config.PanelAuthNone, PublicURL: origin})
 	srv := httptest.NewServer(api.MustHandler())
 	defer srv.Close()
@@ -321,4 +322,21 @@ func TestNoneModeWithoutFamilyExplainsSetup(t *testing.T) {
 	}
 	_, ec = get()
 	assert.Equal(t, "many_families", ec)
+}
+
+func TestCategoriesFromReferenceTable(t *testing.T) {
+	e := newEnv(t, config.PanelAuthMagicLink)
+	e.login()
+	code, body := e.do("GET", "/api/categories", nil)
+	require.Equal(t, http.StatusOK, code)
+	items, ok := body["items"].([]any)
+	require.True(t, ok, body)
+	require.Len(t, items, len(testcats.List()))
+	first, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, map[string]any{"name": "еда", "title": "Еда", "emoji": "🍽️"}, first)
+
+	code, resp := e.do("GET", "/api/expenses?category=казино", nil)
+	assert.Equal(t, http.StatusBadRequest, code, "фильтр по категории не из справочника")
+	assert.Equal(t, "bad_request", errCode(resp))
 }

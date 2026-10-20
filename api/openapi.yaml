@@ -91,7 +91,7 @@ paths:
                 properties:
                   items:
                     type: array
-                    items: { $ref: "#/components/schemas/Category" }
+                    items: { $ref: "#/components/schemas/CategoryInfo" }
 
   /api/expenses:
     get:
@@ -323,7 +323,15 @@ components:
       example: "350.00"
     Category:
       type: string
-      enum: [еда, транспорт, жильё, развлечения, здоровье, покупки, другое]
+      description: Имя категории из справочника GET /api/categories (таблица categories).
+      example: еда
+    CategoryInfo:
+      type: object
+      required: [name, title, emoji]
+      properties:
+        name: { $ref: "#/components/schemas/Category" }
+        title: { type: string, example: Еда }
+        emoji: { type: string, example: "🍽️" }
     Family:
       type: object
       properties:

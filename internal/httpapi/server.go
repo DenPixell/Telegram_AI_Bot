@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"expense-bot/internal/config"
+	"expense-bot/internal/domain"
 	"expense-bot/internal/metrics"
 	"expense-bot/internal/service"
 	"expense-bot/internal/storage/postgres"
@@ -27,6 +28,8 @@ type Deps struct {
 	Families *service.Families
 	Expenses *service.Expenses
 	Auth     *service.Auth
+	// Categories - справочник категорий из БД (для проверки фильтров и GET /api/categories).
+	Categories *domain.CategorySet
 
 	AuthMode      string // config.PanelAuthMagicLink | config.PanelAuthNone
 	PanelFamilyID int64  // для режима none, 0 = единственная семья

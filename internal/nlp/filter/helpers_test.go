@@ -6,6 +6,7 @@ import (
 
 	"expense-bot/internal/nlp/category"
 	"expense-bot/internal/nlp/lexicon"
+	"expense-bot/internal/testutil/testcats"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,7 +19,7 @@ import (
 // testDict - настоящий словарь из config/synonyms.yaml: тесты ловят и ошибки в данных.
 func testDict(t testing.TB) *lexicon.Dictionary {
 	t.Helper()
-	d, err := lexicon.LoadDictionary("../../../config/synonyms.yaml")
+	d, err := lexicon.LoadDictionary("../../../config/synonyms.yaml", testcats.Set())
 	require.NoError(t, err)
 	return d
 }

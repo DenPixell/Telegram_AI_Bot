@@ -32,6 +32,7 @@ const (
 // Dictionary - словарь синонимов, лексикон действий, стоп-слова и служебные слова.
 // Все сравнения по основам слов (Stem), поэтому словоформы не нужно перечислять.
 type Dictionary struct {
+	cats        *domain.CategorySet
 	phrases     map[string]Term // основа фразы -> термин
 	maxPhrase   int             // длина самой длинной фразы в словах
 	forms       map[string][]string
@@ -58,20 +59,22 @@ type dictionaryFile struct {
 
 // LoadDictionary читает и проверяет словарь. Ошибка, если одна и та же форма (после стемминга)
 // указывает на разные категории: такие конфликты надо решить в файле.
-func LoadDictionary(path string) (*Dictionary, error) {
+// cats - справочник категорий из БД: термины могут ссылаться только на существующие.
+func LoadDictionary(path string, cats *domain.CategorySet) (*Dictionary, error) {
 	b, err := os.ReadFile(path) //nolint:gosec // G304: путь из конфига (SYNONYMS_PATH), не от пользователя
 	if err != nil {
 		return nil, fmt.Errorf("read dictionary: %w", err)
 	}
-	return ParseDictionary(b)
+	return ParseDictionary(b, cats)
 }
 
-func ParseDictionary(b []byte) (*Dictionary, error) {
+func ParseDictionary(b []byte, cats *domain.CategorySet) (*Dictionary, error) {
 	var f dictionaryFile
 	if err := yaml.Unmarshal(b, &f); err != nil {
 		return nil, fmt.Errorf("parse dictionary: %w", err)
 	}
 	d := &Dictionary{
+		cats:     cats,
 		phrases:  map[string]Term{},
 		forms:    map[string][]string{},
 		actions:  map[string]ActionKind{},
@@ -89,7 +92,7 @@ func ParseDictionary(b []byte) (*Dictionary, error) {
 	for _, title := range titles {
 		def := f.Terms[title]
 		cat := domain.Category(def.Category)
-		if !cat.Valid() {
+		if !cats.Valid(cat) {
 			errs = append(errs, fmt.Errorf("term %q: unknown category %q", title, def.Category))
 			continue
 		}
@@ -145,6 +148,9 @@ func ParseDictionary(b []byte) (*Dictionary, error) {
 
 // Size - число форм в словаре (для логов).
 func (d *Dictionary) Size() int { return len(d.phrases) }
+
+// Categories - справочник категорий, по которому проверен словарь.
+func (d *Dictionary) Categories() *domain.CategorySet { return d.cats }
 
 // Match - термин, найденный в последовательности слов [Start, End).
 type Match struct {

@@ -10,6 +10,7 @@ import (
 	"expense-bot/internal/nlp/lexicon"
 	"expense-bot/internal/nlp/textnorm"
 	"expense-bot/internal/nlp/thesaurus"
+	"expense-bot/internal/testutil/testcats"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,7 +77,7 @@ func TestCategorizeDictionaryFirst(t *testing.T) {
 	c := NewCategorizer(testDict(t), newMemStore(), th, time.Second)
 	g := categorize(c, "рестик")
 	assert.Equal(t, SourceDictionary, g.Source)
-	assert.Equal(t, domain.CategoryFood, g.Term.Category)
+	assert.Equal(t, testcats.Food, g.Term.Category)
 	assert.Zero(t, th.calls, "известное слово не идёт в сеть")
 }
 
@@ -89,7 +90,7 @@ func TestCategorizeOnlineHypernymWins(t *testing.T) {
 	require.True(t, g.Found())
 	assert.Equal(t, SourceOnline, g.Source)
 	assert.Equal(t, "пельмень", g.Term.Title, "название - начальная форма найденного слова")
-	assert.Equal(t, domain.CategoryFood, g.Term.Category)
+	assert.Equal(t, testcats.Food, g.Term.Category)
 
 	// Второй раз - из кэша, без сети, и для другой формы слова тоже.
 	calls := th.calls
@@ -124,7 +125,7 @@ func TestCategorizeAnimalBeatsRailwaySlang(t *testing.T) {
 	c := NewCategorizer(testDict(t), newMemStore(), th, time.Second)
 	g := categorize(c, "лемур")
 	require.True(t, g.Found())
-	assert.Equal(t, domain.CategoryShopping, g.Term.Category)
+	assert.Equal(t, testcats.Shopping, g.Term.Category)
 }
 
 func TestCategorizeSynonymsCanAgree(t *testing.T) {
@@ -134,7 +135,7 @@ func TestCategorizeSynonymsCanAgree(t *testing.T) {
 	th.pages["гулянка"] = th.pages["днюха"]
 	g := categorize(c, "гулянка")
 	require.True(t, g.Found())
-	assert.Equal(t, domain.CategoryEntertainment, g.Term.Category)
+	assert.Equal(t, testcats.Entertainment, g.Term.Category)
 }
 
 func TestCategorizeSecondHop(t *testing.T) {
@@ -145,7 +146,7 @@ func TestCategorizeSecondHop(t *testing.T) {
 	c := NewCategorizer(testDict(t), newMemStore(), th, time.Second)
 	g := categorize(c, "флэтуайтик")
 	require.True(t, g.Found())
-	assert.Equal(t, domain.CategoryFood, g.Term.Category)
+	assert.Equal(t, testcats.Food, g.Term.Category)
 }
 
 func TestCategorizeBreakerStopsOnlineAfterFailures(t *testing.T) {
@@ -162,7 +163,7 @@ func TestCategorizeBreakerStopsOnlineAfterFailures(t *testing.T) {
 func TestCategorizerLearnFromLLM(t *testing.T) {
 	store := newMemStore()
 	c := NewCategorizer(testDict(t), store, nil, time.Second)
-	c.Learn(context.Background(), "Фрыкадэлька", lexicon.Term{Title: "фрикаделька", Category: domain.CategoryFood})
+	c.Learn(context.Background(), "Фрыкадэлька", lexicon.Term{Title: "фрикаделька", Category: testcats.Food})
 	g := categorize(c, "фрыкадэльки")
 	assert.Equal(t, SourceLearned, g.Source)
 	assert.Equal(t, "фрикаделька", g.Term.Title)
@@ -175,7 +176,7 @@ func TestCategorizerLearnFromLLM(t *testing.T) {
 // testDict - настоящий словарь из config/synonyms.yaml: тесты ловят и ошибки в данных.
 func testDict(t testing.TB) *lexicon.Dictionary {
 	t.Helper()
-	d, err := lexicon.LoadDictionary("../../../config/synonyms.yaml")
+	d, err := lexicon.LoadDictionary("../../../config/synonyms.yaml", testcats.Set())
 	require.NoError(t, err)
 	return d
 }

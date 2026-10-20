@@ -17,6 +17,7 @@ import (
 	"expense-bot/internal/llm"
 	"expense-bot/internal/storage/postgres"
 	"expense-bot/internal/testutil/pgtest"
+	"expense-bot/internal/testutil/testcats"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -199,9 +200,9 @@ func TestExpenseIsolation(t *testing.T) {
 	s, _ := pgtest.New(t)
 	f1 := family(t, s, "Ивановы", 1, 2)
 	f2 := family(t, s, "Петровы", 3)
-	a := expense(t, s, f1.ID, 1, 350, domain.CategoryFood, "2026-10-15", "кофе")
-	expense(t, s, f1.ID, 2, 1200, domain.CategoryTransport, "2026-10-16", "такси")
-	foreign := expense(t, s, f2.ID, 3, 999, domain.CategoryFood, "2026-10-16", "ресторан")
+	a := expense(t, s, f1.ID, 1, 350, testcats.Food, "2026-10-15", "кофе")
+	expense(t, s, f1.ID, 2, 1200, testcats.Transport, "2026-10-16", "такси")
+	foreign := expense(t, s, f2.ID, 3, 999, testcats.Food, "2026-10-16", "ресторан")
 
 	user1 := domain.UserScope(f1.ID, 1)
 	fam1 := domain.FamilyScope(f1.ID)
@@ -230,10 +231,10 @@ func TestExpenseIsolation(t *testing.T) {
 func TestExpenseFilters(t *testing.T) {
 	s, _ := pgtest.New(t)
 	f := family(t, s, "Ивановы", 1, 2)
-	expense(t, s, f.ID, 1, 350, domain.CategoryFood, "2026-10-15", "кофе")
-	expense(t, s, f.ID, 1, 7698, domain.CategoryFood, "2026-10-01", "ресторан")
-	expense(t, s, f.ID, 2, 1200, domain.CategoryTransport, "2026-10-16", "такси")
-	expense(t, s, f.ID, 2, 50, domain.CategoryOther, "2026-09-20", "100% скидка")
+	expense(t, s, f.ID, 1, 350, testcats.Food, "2026-10-15", "кофе")
+	expense(t, s, f.ID, 1, 7698, testcats.Food, "2026-10-01", "ресторан")
+	expense(t, s, f.ID, 2, 1200, testcats.Transport, "2026-10-16", "такси")
+	expense(t, s, f.ID, 2, 50, testcats.Other, "2026-09-20", "100% скидка")
 	fam := domain.FamilyScope(f.ID)
 
 	count := func(f domain.ExpenseFilter) int {
@@ -244,7 +245,7 @@ func TestExpenseFilters(t *testing.T) {
 	}
 	assert.Equal(t, 2, count(domain.ExpenseFilter{Scope: fam, MemberID: 2}))
 	assert.Equal(t, 2, count(domain.ExpenseFilter{Scope: fam, From: d("2026-10-10"), To: d("2026-10-16")}))
-	assert.Equal(t, 2, count(domain.ExpenseFilter{Scope: fam, Categories: []domain.Category{domain.CategoryFood}}))
+	assert.Equal(t, 2, count(domain.ExpenseFilter{Scope: fam, Categories: []domain.Category{testcats.Food}}))
 	assert.Equal(t, 1, count(domain.ExpenseFilter{Scope: fam, Terms: []string{"РЕСТОРАН", "рестик"}}))
 	assert.Equal(t, 1, count(domain.ExpenseFilter{Scope: fam, Terms: []string{"%"}}), "спецсимволы LIKE экранируются")
 	assert.Equal(t, 1, count(domain.ExpenseFilter{Scope: fam, Limit: 1, Offset: 1}))
@@ -253,7 +254,7 @@ func TestExpenseFilters(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "такси", items[0].Title, "новые даты первыми")
 
-	total, n, err := s.SumExpenses(ctx, domain.ExpenseFilter{Scope: fam, Categories: []domain.Category{domain.CategoryFood}})
+	total, n, err := s.SumExpenses(ctx, domain.ExpenseFilter{Scope: fam, Categories: []domain.Category{testcats.Food}})
 	require.NoError(t, err)
 	assert.Equal(t, domain.Money(804800), total)
 	assert.Equal(t, 2, n)
@@ -262,7 +263,7 @@ func TestExpenseFilters(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 4, sum.Count)
 	require.NotEmpty(t, sum.ByCategory)
-	assert.Equal(t, domain.CategoryFood, sum.ByCategory[0].Category, "по убыванию суммы")
+	assert.Equal(t, testcats.Food, sum.ByCategory[0].Category, "по убыванию суммы")
 	assert.Len(t, sum.ByMember, 2)
 	assert.Len(t, sum.ByDay, 4)
 	assert.True(t, sum.ByDay[0].Date.Before(sum.ByDay[3].Date), "дни по возрастанию")
@@ -275,7 +276,7 @@ func TestExpenseFilters(t *testing.T) {
 func TestExpenseOptimisticLocking(t *testing.T) {
 	s, _ := pgtest.New(t)
 	f := family(t, s, "Ивановы", 1)
-	e := expense(t, s, f.ID, 1, 350, domain.CategoryFood, "2026-10-15", "кофе")
+	e := expense(t, s, f.ID, 1, 350, testcats.Food, "2026-10-15", "кофе")
 	scope := domain.UserScope(f.ID, 1)
 
 	e.Amount = 45000
@@ -286,7 +287,7 @@ func TestExpenseOptimisticLocking(t *testing.T) {
 	_, err = s.UpdateExpense(ctx, scope, e) // версия 1 устарела
 	assert.ErrorIs(t, err, domain.ErrConflict)
 
-	_, err = s.CreateExpense(ctx, domain.Expense{FamilyID: f.ID, UserID: 1, Amount: 0, Category: domain.CategoryFood, SpentAt: d("2026-10-15")})
+	_, err = s.CreateExpense(ctx, domain.Expense{FamilyID: f.ID, UserID: 1, Amount: 0, Category: testcats.Food, SpentAt: d("2026-10-15")})
 	assert.ErrorIs(t, err, domain.ErrValidation, "CHECK amount > 0")
 	_, err = s.CreateExpense(ctx, domain.Expense{FamilyID: f.ID, UserID: 1, Amount: 1, Category: "крипта", SpentAt: d("2026-10-15")})
 	assert.ErrorIs(t, err, domain.ErrValidation, "CHECK category")
@@ -295,7 +296,7 @@ func TestExpenseOptimisticLocking(t *testing.T) {
 func TestFamilyDeletionCascadesAndMemberRemovalKeepsExpenses(t *testing.T) {
 	s, _ := pgtest.New(t)
 	f := family(t, s, "Ивановы", 1, 2)
-	expense(t, s, f.ID, 2, 500, domain.CategoryFood, "2026-10-15", "обед")
+	expense(t, s, f.ID, 2, 500, testcats.Food, "2026-10-15", "обед")
 
 	require.NoError(t, s.RemoveMember(ctx, f.ID, 2))
 	items, err := s.ListExpenses(ctx, domain.ExpenseFilter{Scope: domain.FamilyScope(f.ID)})
@@ -332,11 +333,11 @@ func TestAuthTokensAndSessions(t *testing.T) {
 
 func TestLearnedTermsAndUsage(t *testing.T) {
 	s, _ := pgtest.New(t)
-	require.NoError(t, s.SaveLearnedTerm(ctx, domain.LearnedTerm{Stem: "пельмен", Word: "пельмени", Title: "пельмень", Category: domain.CategoryFood, Source: "wiktionary"}))
+	require.NoError(t, s.SaveLearnedTerm(ctx, domain.LearnedTerm{Stem: "пельмен", Word: "пельмени", Title: "пельмень", Category: testcats.Food, Source: "wiktionary"}))
 	require.NoError(t, s.SaveLearnedTerm(ctx, domain.LearnedTerm{Stem: "ден", Word: "день", Title: "день", Source: "wiktionary"}))
 	got, err := s.GetLearnedTerm(ctx, "пельмен")
 	require.NoError(t, err)
-	assert.Equal(t, domain.CategoryFood, got.Category)
+	assert.Equal(t, testcats.Food, got.Category)
 	neg, err := s.GetLearnedTerm(ctx, "ден")
 	require.NoError(t, err)
 	assert.Empty(t, neg.Category, "отрицательный кэш")
@@ -361,8 +362,8 @@ func TestProcessedUpdatesDedup(t *testing.T) {
 func TestDeleteUserData(t *testing.T) {
 	s, _ := pgtest.New(t)
 	f := family(t, s, "Ивановы", 1, 2)
-	expense(t, s, f.ID, 2, 500, domain.CategoryFood, "2026-10-15", "обед")
-	expense(t, s, f.ID, 1, 300, domain.CategoryFood, "2026-10-15", "кофе")
+	expense(t, s, f.ID, 2, 500, testcats.Food, "2026-10-15", "обед")
+	expense(t, s, f.ID, 1, 300, testcats.Food, "2026-10-15", "кофе")
 	require.NoError(t, s.WithTx(ctx, func(ctx context.Context) error { return s.DeleteUserData(ctx, 2) }))
 
 	_, err := s.GetUser(ctx, 2)

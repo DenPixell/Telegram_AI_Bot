@@ -133,3 +133,13 @@ func toSummaryDTO(s domain.ExpenseSummary) summaryDTO {
 		}),
 	}
 }
+
+type categoryDTO struct {
+	Name  domain.Category `json:"name"`
+	Title string          `json:"title"`
+	Emoji string          `json:"emoji"`
+}
+
+func categoryDTOFrom(c domain.CategoryInfo) categoryDTO {
+	return categoryDTO{Name: c.Name, Title: c.Title, Emoji: c.Emoji}
+}

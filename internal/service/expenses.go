@@ -22,12 +22,14 @@ const (
 // Доработка для бота (разрешение «последней», синонимы) - этап 7.
 type Expenses struct {
 	store ExpenseStore
+	cats  *domain.CategorySet
 	appTZ string
 	now   func() time.Time
 }
 
-func NewExpenses(store ExpenseStore, appTZ string) *Expenses {
-	return &Expenses{store: store, appTZ: appTZ, now: time.Now}
+// cats - справочник категорий из БД (postgres.Store.Categories).
+func NewExpenses(store ExpenseStore, cats *domain.CategorySet, appTZ string) *Expenses {
+	return &Expenses{store: store, cats: cats, appTZ: appTZ, now: time.Now}
 }
 
 // PanelScope - все траты семьи; только для владельца.
@@ -85,7 +87,7 @@ func (s *Expenses) Create(ctx context.Context, a domain.Actor, e domain.Expense)
 	if e.SpentAt.IsZero() {
 		e.SpentAt = today
 	}
-	if e, err = validateExpense(e, today); err != nil {
+	if e, err = s.validateExpense(e, today); err != nil {
 		return domain.Expense{}, err
 	}
 	res, err := s.store.CreateExpense(ctx, e)
@@ -105,7 +107,7 @@ func (s *Expenses) Update(ctx context.Context, scope domain.ExpenseScope, e doma
 	if err != nil {
 		return domain.Expense{}, err
 	}
-	if e, err = validateExpense(e, today); err != nil {
+	if e, err = s.validateExpense(e, today); err != nil {
 		return domain.Expense{}, err
 	}
 	res, err := s.store.UpdateExpense(ctx, scope, e)
@@ -147,11 +149,11 @@ func (s *Expenses) Today(ctx context.Context, userID int64) (domain.Date, error)
 }
 
 // validateExpense проверяет и нормализует поля, которые задаёт пользователь или модель.
-func validateExpense(e domain.Expense, today domain.Date) (domain.Expense, error) {
+func (s *Expenses) validateExpense(e domain.Expense, today domain.Date) (domain.Expense, error) {
 	if !e.Amount.Valid() {
 		return e, fmt.Errorf("%w: сумма должна быть от 0.01 до %s", domain.ErrValidation, domain.MaxMoney)
 	}
-	if !e.Category.Valid() {
+	if !s.cats.Valid(e.Category) {
 		return e, fmt.Errorf("%w: неизвестная категория %q", domain.ErrValidation, e.Category)
 	}
 	if e.SpentAt.IsZero() {

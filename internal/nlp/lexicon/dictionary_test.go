@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"expense-bot/internal/nlp/textnorm"
+	"expense-bot/internal/testutil/testcats"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,23 +19,23 @@ func TestLookup(t *testing.T) {
 		title string // "" - совпадений нет
 		cat   domain.Category
 	}{
-		{"рестик", "ресторан", domain.CategoryFood},
-		{"в ресторане", "ресторан", domain.CategoryFood},
-		{"шавуху", "шаурма", domain.CategoryFood},
-		{"латте", "кофе", domain.CategoryFood},
-		{"в пятёрочке", "супермаркет", domain.CategoryFood},
-		{"вкусно и точка", "фастфуд", domain.CategoryFood},  // фраза со служебным словом
-		{"яндекс такси", "такси", domain.CategoryTransport}, // многословный синоним
-		{"аренда самоката", "самокат-аренда", domain.CategoryTransport},
-		{"аренда", "аренда квартиры", domain.CategoryHousing},
-		{"мандаринчики", "фрукты", domain.CategoryFood}, // уменьшительная форма
-		{"кофеечек", "кофе", domain.CategoryFood},
-		{"зефирка", "сладости", domain.CategoryFood},
-		{"носовые платки", "бытовая химия", domain.CategoryHousing},
-		{"день рождения", "праздник", domain.CategoryEntertainment},
-		{"купе", "поезд", domain.CategoryTransport},
-		{"собака", "зоотовары", domain.CategoryShopping}, // регрессия: «собака» -> «поезд» (жаргон) -> транспорт
-		{"корм для кота", "зоотовары", domain.CategoryShopping},
+		{"рестик", "ресторан", testcats.Food},
+		{"в ресторане", "ресторан", testcats.Food},
+		{"шавуху", "шаурма", testcats.Food},
+		{"латте", "кофе", testcats.Food},
+		{"в пятёрочке", "супермаркет", testcats.Food},
+		{"вкусно и точка", "фастфуд", testcats.Food},  // фраза со служебным словом
+		{"яндекс такси", "такси", testcats.Transport}, // многословный синоним
+		{"аренда самоката", "самокат-аренда", testcats.Transport},
+		{"аренда", "аренда квартиры", testcats.Housing},
+		{"мандаринчики", "фрукты", testcats.Food}, // уменьшительная форма
+		{"кофеечек", "кофе", testcats.Food},
+		{"зефирка", "сладости", testcats.Food},
+		{"носовые платки", "бытовая химия", testcats.Housing},
+		{"день рождения", "праздник", testcats.Entertainment},
+		{"купе", "поезд", testcats.Transport},
+		{"собака", "зоотовары", testcats.Shopping}, // регрессия: «собака» -> «поезд» (жаргон) -> транспорт
+		{"корм для кота", "зоотовары", testcats.Shopping},
 		// Регрессии.
 		{"купили", "", ""}, // служебное слово не совпадает с «купе»
 		{"найм", "", ""},   // слишком общее слово
@@ -81,13 +82,13 @@ func TestParseDictionaryRejectsConflicts(t *testing.T) {
 terms:
   кофе: {category: еда, aliases: [донат]}
   благотворительность: {category: другое, aliases: [донат]}
-`))
+`), testcats.Set())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "донат")
 }
 
 func TestParseDictionaryRejectsUnknownCategory(t *testing.T) {
-	_, err := ParseDictionary([]byte(`terms: {кофе: {category: напитки}}`))
+	_, err := ParseDictionary([]byte(`terms: {кофе: {category: напитки}}`), testcats.Set())
 	require.Error(t, err)
 }
 
@@ -113,7 +114,7 @@ func TestLookupAllCaseForms(t *testing.T) {
 // testDict - настоящий словарь из config/synonyms.yaml: тесты ловят и ошибки в данных.
 func testDict(t testing.TB) *Dictionary {
 	t.Helper()
-	d, err := LoadDictionary("../../../config/synonyms.yaml")
+	d, err := LoadDictionary("../../../config/synonyms.yaml", testcats.Set())
 	require.NoError(t, err)
 	return d
 }

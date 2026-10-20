@@ -3,7 +3,8 @@ import { api, ApiError, type Expense, type Filter, type Member, type Summary } f
 import { CategoryBars, DailyColumns, MemberBars } from "../components/Charts";
 import { ExpenseDialog } from "../components/ExpenseDialog";
 import { Spinner, useToast } from "../components/ui";
-import { addDays, categories, categoryMeta, dayLabel, money, plural, todayISO } from "../format";
+import { useCategories } from "../categories";
+import { addDays, dayLabel, money, plural, todayISO } from "../format";
 
 type Period = "month" | "last_month" | "week" | "all" | "custom";
 
@@ -38,6 +39,7 @@ const pageSize = 50;
 
 export function ExpensesPage({ members, meID }: { members: Member[]; meID: number }) {
   const toast = useToast();
+  const { list: categories, meta: categoryMeta } = useCategories();
   const [period, setPeriod] = useState<Period>("month");
   const [custom, setCustom] = useState({ from: addDays(todayISO(), -30), to: todayISO() });
   const [memberID, setMemberID] = useState(0);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, setCSRF, type Me, type Member } from "./api";
+import { api, ApiError, setCSRF, type CategoryInfo, type Me, type Member } from "./api";
+import { CategoriesProvider } from "./categories";
 import { ThemeMenu } from "./components/ThemeMenu";
 import { Spinner, ToastProvider, useToast } from "./components/ui";
 import { greeting } from "./format";
@@ -119,6 +120,7 @@ function Panel({ me: initial, themeButton, onLogout }: {
   const [me, setMe] = useState(initial);
   const [tab, setTab] = useState<"expenses" | "family">("expenses");
   const [members, setMembers] = useState<Member[]>([]);
+  const [categories, setCategories] = useState<CategoryInfo[]>([]);
 
   const loadMembers = useCallback(async () => {
     try { setMembers(await api.members()); }
@@ -128,6 +130,12 @@ function Panel({ me: initial, themeButton, onLogout }: {
     }
   }, [toast, onLogout]);
   useEffect(() => { loadMembers(); }, [loadMembers]);
+  useEffect(() => {
+    api.categories().then(setCategories).catch((err) => {
+      if (err instanceof ApiError && err.status === 401) return onLogout("expired");
+      toast(err instanceof ApiError ? err.message : "Не удалось загрузить категории", true);
+    });
+  }, [toast, onLogout]);
 
   const owner = members.find((m) => m.user_id === me.user_id);
   const firstName = owner?.display_name.split(" ")[0];
@@ -164,16 +172,18 @@ function Panel({ me: initial, themeButton, onLogout }: {
       </nav>
 
       <main>
-        {tab === "expenses" ? (
-          <ExpensesPage members={members} meID={me.user_id} />
-        ) : (
-          <FamilyPage
-            meID={me.user_id} family={me.family} members={members}
-            onFamilyChange={(f) => setMe({ ...me, family: f })}
-            onMembersChange={loadMembers}
-            onLostAccess={() => onLogout("lost")}
-          />
-        )}
+        <CategoriesProvider items={categories}>
+          {tab === "expenses" ? (
+            <ExpensesPage members={members} meID={me.user_id} />
+          ) : (
+            <FamilyPage
+              meID={me.user_id} family={me.family} members={members}
+              onFamilyChange={(f) => setMe({ ...me, family: f })}
+              onMembersChange={loadMembers}
+              onLostAccess={() => onLogout("lost")}
+            />
+          )}
+        </CategoriesProvider>
       </main>
     </div>
   );
