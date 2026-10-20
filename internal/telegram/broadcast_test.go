@@ -182,10 +182,31 @@ func TestBroadcastAdminCommand(t *testing.T) {
 
 	require.NoError(t, h.callback(ctx, cq(1, sendData)))
 	b.Wait()
-	assert.Contains(t, tg.messages(1)[2].Text, "запущена")
+	// Админ тоже получатель: подтверждение «запущена» и сама рассылка уходят ему почти
+	// одновременно (рассылка - из фоновой горутины), поэтому порядок не проверяем.
+	adminTexts := texts(tg.messages(1)[2:])
+	assert.Condition(t, func() bool { return containsAny(adminTexts, "запущена") }, "подтверждение админу: %q", adminTexts)
+	assert.Contains(t, adminTexts, "Завтра бот недоступен с 10 до 11", "админ тоже получил рассылку")
 	assert.Equal(t, "Завтра бот недоступен с 10 до 11", tg.messages(2)[0].Text)
 
 	require.NoError(t, h.callback(ctx, cq(1, sendData)))
 	last := tg.messages(1)
 	assert.Contains(t, last[len(last)-1].Text, "уже отправлена или отменена", "повторное нажатие не задваивает")
+}
+
+func texts(ms []sentMsg) []string {
+	out := make([]string, len(ms))
+	for i, m := range ms {
+		out[i] = m.Text
+	}
+	return out
+}
+
+func containsAny(ss []string, sub string) bool {
+	for _, s := range ss {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
 }
