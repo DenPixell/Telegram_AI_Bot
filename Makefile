@@ -22,8 +22,8 @@ lint:
 
 # Короткий фаззинг парсера сумм и фильтра.
 fuzz:
-	go test ./internal/pipeline -run '^$$' -fuzz '^FuzzAnalyze$$' -fuzztime 30s
-	go test ./internal/pipeline -run '^$$' -fuzz '^FuzzParseAmounts$$' -fuzztime 30s
+	go test ./internal/nlp/filter -run '^$$' -fuzz '^FuzzAnalyze$$' -fuzztime 30s
+	go test ./internal/nlp/parse -run '^$$' -fuzz '^FuzzParseAmounts$$' -fuzztime 30s
 
 # Метрики Prometheus работающего приложения.
 metrics:

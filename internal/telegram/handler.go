@@ -14,9 +14,11 @@ import (
 	"expense-bot/internal/agent"
 	"expense-bot/internal/config"
 	"expense-bot/internal/domain"
+	"expense-bot/internal/limits"
 	"expense-bot/internal/metrics"
+	"expense-bot/internal/nlp/intent"
+	"expense-bot/internal/nlp/textnorm"
 	"expense-bot/internal/onboarding"
-	"expense-bot/internal/pipeline"
 	"expense-bot/internal/service"
 	"expense-bot/internal/storage/postgres"
 	"expense-bot/internal/timezone"
@@ -29,7 +31,7 @@ type HandlerDeps struct {
 	Auth        *service.Auth
 	Agent       *agent.Agent
 	FSM         *onboarding.FSM
-	Limiter     *pipeline.RateLimiter
+	Limiter     *limits.RateLimiter
 	Sender      *Sender
 	API         *API
 	BotUsername func() string
@@ -164,7 +166,7 @@ func (h *Handler) message(ctx context.Context, m *Message) error {
 	if handled, err := h.confirmByText(ctx, m.Chat.ID, u, text); handled || err != nil {
 		return err
 	}
-	if in, ok := pipeline.MatchIntent(text); ok {
+	if in, ok := intent.Match(text); ok {
 		return h.intent(ctx, m.Chat.ID, u, actor, in)
 	}
 	r, err := h.Agent.Handle(ctx, actor, text)
@@ -174,13 +176,13 @@ func (h *Handler) message(ctx context.Context, m *Message) error {
 	return h.Sender.Send(ctx, m.Chat.ID, r.Text, nil)
 }
 
-func (h *Handler) intent(ctx context.Context, chatID int64, u domain.User, a domain.Actor, in pipeline.Intent) error {
+func (h *Handler) intent(ctx context.Context, chatID int64, u domain.User, a domain.Actor, in intent.Intent) error {
 	send := func(text string, markup *ReplyMarkup) error { return h.Sender.Send(ctx, chatID, text, markup) }
 	switch in.Kind {
-	case pipeline.IntentHelp:
+	case intent.Help:
 		return send(onboarding.Help(a.IsOwner()), nil)
 
-	case pipeline.IntentInvite:
+	case intent.Invite:
 		inv, err := h.Families.CreateInvite(ctx, a)
 		if errors.Is(err, domain.ErrForbidden) {
 			return send(msgOwnerOnly+" Попросите у неё или него ссылку-приглашение.", nil)
@@ -190,7 +192,7 @@ func (h *Handler) intent(ctx context.Context, chatID int64, u domain.User, a dom
 		}
 		return send(onboarding.InviteText(h.BotUsername(), inv, h.InviteTTL)+"\nОтправьте ссылку или код тому, кого хотите пригласить.", nil)
 
-	case pipeline.IntentPanel:
+	case intent.Panel:
 		if !a.IsOwner() {
 			return send("Веб-панель доступна главе семьи. Свои траты можно смотреть здесь: «покажи траты за месяц».", nil)
 		}
@@ -205,7 +207,7 @@ func (h *Handler) intent(ctx context.Context, chatID int64, u domain.User, a dom
 		return send(fmt.Sprintf("Ссылка для входа в панель (одноразовая, действует %d минут):\n%s/auth?token=%s\n\nНикому её не пересылайте.",
 			int(service.LoginTokenTTL.Minutes()), base, token), nil)
 
-	case pipeline.IntentTimezone:
+	case intent.Timezone:
 		if in.Arg == "" {
 			fam, err := h.Families.GetFamily(ctx, a)
 			if err != nil {
@@ -224,7 +226,7 @@ func (h *Handler) intent(ctx context.Context, chatID int64, u domain.User, a dom
 		}
 		return send("Часовой пояс: "+z.Describe(time.Now())+". Новые траты будут записываться по нему.", nil)
 
-	case pipeline.IntentLeave:
+	case intent.Leave:
 		n, err := h.Families.MemberCount(ctx, a)
 		if err != nil {
 			return err
@@ -239,7 +241,7 @@ func (h *Handler) intent(ctx context.Context, chatID int64, u domain.User, a dom
 		h.askConfirm(u.TelegramID, cbLeave)
 		return send(text+" Ответьте «да» или «нет».", confirm("Да, выйти", cbLeave))
 
-	case pipeline.IntentDeleteData:
+	case intent.DeleteData:
 		if n, err := h.Families.MemberCount(ctx, a); err != nil {
 			return err
 		} else if a.IsOwner() && n > 1 {
@@ -510,7 +512,7 @@ func (h *Handler) confirmByText(ctx context.Context, chatID int64, u domain.User
 	if !ok {
 		return false, nil
 	}
-	switch strings.Trim(pipeline.Normalize(text), ".!") {
+	switch strings.Trim(textnorm.Normalize(text), ".!") {
 	case "да", "ага", "конечно", "подтверждаю", "да, выйти", "да, удалить", "выйти", "удалить":
 		if action == cbLeave {
 			return true, h.doLeave(ctx, chatID, u)

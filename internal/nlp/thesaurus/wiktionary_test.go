@@ -1,4 +1,4 @@
-package pipeline
+package thesaurus
 
 import (
 	"context"
@@ -37,4 +37,16 @@ func TestWiktionaryHTTPError(t *testing.T) {
 	defer srv.Close()
 	_, err := NewWiktionary(srv.URL, time.Second).Lookup(context.Background(), []string{"x"})
 	assert.Error(t, err)
+}
+
+func TestRelatedFromWikitext(t *testing.T) {
+	text := "= {{-ru-}} =\n==== Синонимы ====\n# [[кебаб]], [[донер-кебаб|донер]]\n==== Гиперонимы ====\n# [[блюдо]]\n==== Гипонимы ====\n# [[шаверма]]\n= {{-en-}} =\n==== Синонимы ====\n# [[wrap]]"
+	r := relatedFromWikitext(text)
+	assert.Equal(t, []string{"блюдо"}, r.Hypernyms)
+	assert.Equal(t, []string{"кебаб", "донер-кебаб"}, r.Synonyms, "только русская секция, без гипонимов")
+}
+
+func TestLemmaCandidates(t *testing.T) {
+	assert.Contains(t, LemmaCandidates("шаурмой"), "шаурма")
+	assert.Equal(t, "латте", LemmaCandidates("латте")[0], "само слово - первым")
 }

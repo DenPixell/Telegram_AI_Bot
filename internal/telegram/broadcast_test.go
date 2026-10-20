@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"expense-bot/internal/domain"
-	"expense-bot/internal/pipeline"
+	"expense-bot/internal/limits"
 	"expense-bot/internal/storage/postgres"
 	"expense-bot/internal/testutil/pgtest"
 )
@@ -157,7 +157,7 @@ func TestBroadcastAdminCommand(t *testing.T) {
 	users(t, s, 1, 2)
 	h := NewHandler(HandlerDeps{
 		Store: s, Sender: sender, API: NewAPI("http://127.0.0.1:9", "x"), Broadcast: b,
-		AdminIDs: []int64{1}, Limiter: pipeline.NewRateLimiter(100, time.Minute), BotUsername: func() string { return "bot" },
+		AdminIDs: []int64{1}, Limiter: limits.NewRateLimiter(100, time.Minute), BotUsername: func() string { return "bot" },
 	})
 	msg := func(from int64, text string) *Message {
 		return &Message{From: &User{ID: from}, Chat: Chat{ID: from, Type: "private"}, Text: text}

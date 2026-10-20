@@ -1,8 +1,11 @@
-package pipeline
+package filter
 
 import (
 	"context"
 	"testing"
+
+	"expense-bot/internal/nlp/category"
+	"expense-bot/internal/nlp/lexicon"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,9 +16,9 @@ import (
 // Общие помощники тестов пакета.
 
 // testDict - настоящий словарь из config/synonyms.yaml: тесты ловят и ошибки в данных.
-func testDict(t testing.TB) *Dictionary {
+func testDict(t testing.TB) *lexicon.Dictionary {
 	t.Helper()
-	d, err := LoadDictionary("../../config/synonyms.yaml")
+	d, err := lexicon.LoadDictionary("../../../config/synonyms.yaml")
 	require.NoError(t, err)
 	return d
 }
@@ -24,7 +27,7 @@ func testDict(t testing.TB) *Dictionary {
 func testAnalyzer(t testing.TB) *Analyzer {
 	t.Helper()
 	d := testDict(t)
-	return NewAnalyzer(d, NewCategorizer(d, nil, nil, 0), 300)
+	return NewAnalyzer(d, category.NewCategorizer(d, nil, nil, 0), 300)
 }
 
 // today - пятница 16.10.2026.

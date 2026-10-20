@@ -1,10 +1,12 @@
-package pipeline
+package parse
 
 import (
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"expense-bot/internal/nlp/textnorm"
 
 	"expense-bot/internal/domain"
 )
@@ -26,12 +28,12 @@ var months = map[string]time.Month{
 }
 
 // dayOfMonth: токен i - число 1..31, за ним название месяца («5 марта»).
-func dayOfMonth(toks []token, i int) (int, time.Month, bool) {
-	if i+1 >= len(toks) || toks[i].kind != tokNumber || !isDigits(toks[i].text) {
+func dayOfMonth(toks []textnorm.Token, i int) (int, time.Month, bool) {
+	if i+1 >= len(toks) || toks[i].Kind != textnorm.KindNumber || !isDigits(toks[i].Text) {
 		return 0, 0, false
 	}
-	m, ok := months[toks[i+1].text]
-	d, err := strconv.Atoi(toks[i].text)
+	m, ok := months[toks[i+1].Text]
+	d, err := strconv.Atoi(toks[i].Text)
 	if !ok || err != nil || d < 1 || d > 31 {
 		return 0, 0, false
 	}
@@ -42,27 +44,27 @@ func dayOfMonth(toks []token, i int) (int, time.Month, bool) {
 // День недели - ближайший прошедший (или сегодняшний). Дата без года - текущий год, а если
 // она получается позже завтрашнего дня - прошлый.
 // Токены сумм (skip) датой не считаются: «1.5к» - это не 1 мая.
-func findDate(toks []token, today domain.Date, skip []Amount) (domain.Date, int, bool) {
+func FindDateIn(toks []textnorm.Token, today domain.Date, skip []Amount) (domain.Date, int, bool) {
 	for i, t := range toks {
 		if inAmount(i, skip) {
 			continue
 		}
-		switch t.kind {
-		case tokWord:
-			if off, ok := relativeDays[t.text]; ok {
+		switch t.Kind {
+		case textnorm.KindWord:
+			if off, ok := relativeDays[t.Text]; ok {
 				return today.AddDays(off), i, true
 			}
-			if wd, ok := weekdays[t.text]; ok {
+			if wd, ok := weekdays[t.Text]; ok {
 				back := (int(today.Time().Weekday()) - int(wd) + 7) % 7
 				return today.AddDays(-back), i, true
 			}
-		case tokNumber:
+		case textnorm.KindNumber:
 			if day, month, ok := dayOfMonth(toks, i); ok {
 				if d, ok := parseDayMonth(fmt.Sprintf("%d.%d", day, month), today); ok {
 					return d, i, true
 				}
 			}
-			if d, ok := parseDayMonth(t.text, today); ok {
+			if d, ok := parseDayMonth(t.Text, today); ok {
 				return d, i, true
 			}
 		}
@@ -98,7 +100,7 @@ func parseDayMonth(s string, today domain.Date) (domain.Date, bool) {
 
 func inAmount(i int, amounts []Amount) bool {
 	for _, a := range amounts {
-		if i >= a.first && i <= a.last {
+		if i >= a.First && i <= a.Last {
 			return true
 		}
 	}
@@ -108,7 +110,17 @@ func inAmount(i int, amounts []Amount) bool {
 // FindDate - указание даты в тексте («вчера», «в пятницу», «12.10») относительно today.
 // Агент подставляет её, если модель не передала дату сама.
 func FindDate(text string, today domain.Date) (domain.Date, bool) {
-	toks := tokenize(Normalize(text))
-	d, _, ok := findDate(toks, today, parseAmounts(toks))
+	toks := textnorm.Tokenize(textnorm.Normalize(text))
+	d, _, ok := FindDateIn(toks, today, Amounts(toks))
 	return d, ok
 }
+
+// IsRelativeOrWeekday - «вчера», «сегодня», «в пятницу»: слово даты, а не названия траты.
+func IsRelativeOrWeekday(w string) bool {
+	_, rel := relativeDays[w]
+	_, wd := weekdays[w]
+	return rel || wd
+}
+
+// IsMonth - название месяца в любом падеже из словаря дат («марта»).
+func IsMonth(w string) bool { return months[w] != 0 }

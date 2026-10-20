@@ -17,9 +17,13 @@ import (
 	"expense-bot/internal/agent"
 	"expense-bot/internal/config"
 	"expense-bot/internal/httpapi"
+	"expense-bot/internal/limits"
 	"expense-bot/internal/llm"
+	"expense-bot/internal/nlp/category"
+	"expense-bot/internal/nlp/filter"
+	"expense-bot/internal/nlp/lexicon"
+	"expense-bot/internal/nlp/thesaurus"
 	"expense-bot/internal/onboarding"
-	"expense-bot/internal/pipeline"
 	"expense-bot/internal/service"
 	"expense-bot/internal/storage/postgres"
 	"expense-bot/internal/telegram"
@@ -70,20 +74,20 @@ func run() error {
 	expenses := service.NewExpenses(store, cfg.AppTZ)
 	auth := service.NewAuth(store)
 
-	dict, err := pipeline.LoadDictionary(cfg.Synonyms.Path)
+	dict, err := lexicon.LoadDictionary(cfg.Synonyms.Path)
 	if err != nil {
 		return err
 	}
-	var thesaurus pipeline.Thesaurus
+	var thes category.Thesaurus
 	if cfg.Synonyms.OnlineEnabled {
-		thesaurus = pipeline.NewWiktionary(cfg.Synonyms.OnlineURL, cfg.Synonyms.OnlineTimeout)
+		thes = thesaurus.NewWiktionary(cfg.Synonyms.OnlineURL, cfg.Synonyms.OnlineTimeout)
 	}
-	categorizer := pipeline.NewCategorizer(dict, store, thesaurus, cfg.Synonyms.OnlineTimeout)
-	analyzer := pipeline.NewAnalyzer(dict, categorizer, cfg.Limits.MaxMessageLen)
+	categorizer := category.NewCategorizer(dict, store, thes, cfg.Synonyms.OnlineTimeout)
+	analyzer := filter.NewAnalyzer(dict, categorizer, cfg.Limits.MaxMessageLen)
 	slog.Info("dictionary loaded", "forms", dict.Size(), "online_thesaurus", cfg.Synonyms.OnlineEnabled)
 	llmClient := llm.New(cfg, store)
 	slog.Info("llm configured", "chain", llmClient.Name(), "agent_mode", cfg.LLM.AgentMode)
-	quota := pipeline.NewQuota(store, cfg.Limits.LLMQuotaUser, cfg.Limits.LLMQuotaFamily, cfg.Limits.LLMQuotaGlobal)
+	quota := limits.NewQuota(store, cfg.Limits.LLMQuotaUser, cfg.Limits.LLMQuotaFamily, cfg.Limits.LLMQuotaGlobal)
 	expenseAgent := agent.New(llmClient, expenses, dict, categorizer, analyzer, quota,
 		agent.Config{Mode: cfg.LLM.AgentMode, MaxTokens: cfg.LLM.MaxOutputTokens})
 
@@ -108,7 +112,7 @@ func run() error {
 		Auth:        auth,
 		Agent:       expenseAgent,
 		FSM:         onboarding.New(store, families, cfg.AppTZ, cfg.Limits.InviteTTL, botUsername),
-		Limiter:     pipeline.NewRateLimiter(cfg.Limits.RatePerMin, time.Minute),
+		Limiter:     limits.NewRateLimiter(cfg.Limits.RatePerMin, time.Minute),
 		Sender:      sender,
 		API:         tgAPI,
 		BotUsername: botUsername,

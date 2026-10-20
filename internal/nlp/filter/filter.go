@@ -1,9 +1,14 @@
-package pipeline
+package filter
 
 import (
 	"context"
 	"strings"
 	"unicode/utf8"
+
+	"expense-bot/internal/nlp/category"
+	"expense-bot/internal/nlp/lexicon"
+	"expense-bot/internal/nlp/parse"
+	"expense-bot/internal/nlp/textnorm"
 
 	"expense-bot/internal/domain"
 	"expense-bot/internal/metrics"
@@ -43,11 +48,11 @@ const (
 // ParsedExpense - разбор простой траты.
 type ParsedExpense struct {
 	Amount   domain.Money
-	Large    bool        // выше LargeAmount, бот просит подтверждение
+	Large    bool        // выше parse.LargeAmount, бот просит подтверждение
 	Date     domain.Date // нулевая - сегодня
 	Title    string
 	Category domain.Category // "" - не распознана
-	Source   Source
+	Source   category.Source
 	Words    []string // слова названия, для обучения кэша по ответу LLM
 	Comment  string   // как написал пользователь
 }
@@ -56,18 +61,18 @@ type ParsedExpense struct {
 type Decision struct {
 	Verdict Verdict
 	Reason  RejectReason
-	Action  ActionKind     // для VerdictAgent: найденное действие над тратами, если есть
-	Expense *ParsedExpense // для VerdictExpense и VerdictNeedAmount; для VerdictAgent - подсказка
+	Action  lexicon.ActionKind // для VerdictAgent: найденное действие над тратами, если есть
+	Expense *ParsedExpense     // для VerdictExpense и VerdictNeedAmount; для VerdictAgent - подсказка
 }
 
 // Analyzer - ступени 0 и 4 конвейера: технические проверки и фильтр правил.
 type Analyzer struct {
-	dict   *Dictionary
-	cat    *Categorizer
+	dict   *lexicon.Dictionary
+	cat    *category.Categorizer
 	maxLen int
 }
 
-func NewAnalyzer(dict *Dictionary, cat *Categorizer, maxLen int) *Analyzer {
+func NewAnalyzer(dict *lexicon.Dictionary, cat *category.Categorizer, maxLen int) *Analyzer {
 	return &Analyzer{dict: dict, cat: cat, maxLen: maxLen}
 }
 
@@ -86,24 +91,24 @@ func (a *Analyzer) analyze(ctx context.Context, text string, today domain.Date) 
 	if utf8.RuneCountInString(text) > a.maxLen {
 		return reject(ReasonTooLong)
 	}
-	norm := Normalize(text)
-	toks := tokenize(norm)
-	words := wordsOf(norm)
+	norm := textnorm.Normalize(text)
+	toks := textnorm.Tokenize(norm)
+	words := textnorm.Words(norm)
 
-	if a.hasStopPhrase(words) {
+	if a.dict.HasStopPhrase(words) {
 		return reject(ReasonStopWord)
 	}
-	var action ActionKind
+	var action lexicon.ActionKind
 	hard, soft := false, false
 	for _, w := range words {
-		s := Stem(w)
-		if a.dict.hardStop[s] {
+		s := textnorm.Stem(w)
+		if a.dict.IsHardStop(s) {
 			hard = true
 		}
-		if a.dict.softStop[s] {
+		if a.dict.IsSoftStop(s) {
 			soft = true
 		}
-		if k, ok := a.dict.actions[s]; ok && action == "" {
+		if k, ok := a.dict.Action(s); ok && action == "" {
 			action = k
 		}
 	}
@@ -115,7 +120,7 @@ func (a *Analyzer) analyze(ctx context.Context, text string, today domain.Date) 
 		return reject(ReasonStopWord)
 	}
 
-	amounts := parseAmounts(toks)
+	amounts := parse.Amounts(toks)
 	// Запросы, удаление, изменение («последнее было не 350, а 450») - в агента.
 	if action != "" {
 		return Decision{Verdict: VerdictAgent, Action: action}
@@ -134,7 +139,7 @@ func (a *Analyzer) analyze(ctx context.Context, text string, today domain.Date) 
 	}
 
 	amt := amounts[0]
-	date, dateIdx, _ := findDate(toks, today, amounts)
+	date, dateIdx, _ := parse.FindDateIn(toks, today, amounts)
 	titleWords := a.titleWords(toks, &amt, dateIdx)
 	content := a.content(titleWords)
 	pe := &ParsedExpense{
@@ -155,16 +160,16 @@ func (a *Analyzer) analyze(ctx context.Context, text string, today domain.Date) 
 // titleWords - слова, описывающие трату: без суммы с множителем и валютой и без даты.
 // Служебные слова остаются, потому что входят в названия («Вкусно и точка»); словарь
 // ищет по всей последовательности, а онлайн-поиск их пропускает.
-func (a *Analyzer) titleWords(toks []token, amt *Amount, dateIdx int) []string {
+func (a *Analyzer) titleWords(toks []textnorm.Token, amt *parse.Amount, dateIdx int) []string {
 	var out []string
 	for i, t := range toks {
-		if t.kind != tokWord || i == dateIdx || (amt != nil && i >= amt.first && i <= amt.last) {
+		if t.Kind != textnorm.KindWord || i == dateIdx || (amt != nil && i >= amt.First && i <= amt.Last) {
 			continue
 		}
-		if weekdayOrRelative(t.text) || (i == dateIdx+1 && months[t.text] != 0) {
+		if parse.IsRelativeOrWeekday(t.Text) || (i == dateIdx+1 && parse.IsMonth(t.Text)) {
 			continue // «вчера», «в пятницу», месяц в «5 марта»
 		}
-		out = append(out, t.text)
+		out = append(out, t.Text)
 	}
 	return out
 }
@@ -173,27 +178,11 @@ func (a *Analyzer) titleWords(toks []token, amt *Amount, dateIdx int) []string {
 func (a *Analyzer) content(words []string) []string {
 	var out []string
 	for _, w := range words {
-		if !a.dict.fillers[w] {
+		if !a.dict.IsFiller(w) {
 			out = append(out, w)
 		}
 	}
 	return out
-}
-
-func weekdayOrRelative(w string) bool {
-	_, rel := relativeDays[w]
-	_, wd := weekdays[w]
-	return rel || wd
-}
-
-func (a *Analyzer) hasStopPhrase(words []string) bool {
-	joined := " " + strings.Join(words, " ") + " "
-	for _, p := range a.dict.stopPhrases {
-		if strings.Contains(joined, " "+p+" ") {
-			return true
-		}
-	}
-	return false
 }
 
 func reject(r RejectReason) Decision { return Decision{Verdict: VerdictReject, Reason: r} }

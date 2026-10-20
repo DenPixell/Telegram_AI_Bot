@@ -1,8 +1,10 @@
-package pipeline
+package parse
 
 import (
 	"strconv"
 	"strings"
+
+	"expense-bot/internal/nlp/textnorm"
 
 	"expense-bot/internal/domain"
 )
@@ -15,7 +17,7 @@ type Amount struct {
 	Value domain.Money
 	Large bool // выше LargeAmount, нужно подтверждение
 	// first, last - индексы токенов суммы вместе с множителем и валютой.
-	first, last int
+	First, Last int
 }
 
 var multipliers = map[string]int64{
@@ -32,36 +34,36 @@ var currencies = map[string]bool{
 // parseAmounts находит суммы: «350», «1 200», «1200р», «1200 руб», «1200₽», «1.5к», «1,5к»,
 // «2 тыс», «350.50». Даты («12.10», «12.10.2026») и время («18:30») суммами не считаются,
 // если за ними не идёт валюта.
-func parseAmounts(toks []token) []Amount {
+func Amounts(toks []textnorm.Token) []Amount {
 	var res []Amount
 	for i := 0; i < len(toks); i++ {
 		t := toks[i]
-		if t.kind != tokNumber {
+		if t.Kind != textnorm.KindNumber {
 			continue
 		}
 		first := i
-		num := t.text
+		num := t.Text
 		if _, _, ok := dayOfMonth(toks, i); ok {
 			i++ // «5 марта» - дата, не сумма
 			continue
 		}
 		// Разряды через пробел: «1 200», «10 000 000». Первая группа до трёх цифр, дальше по три.
 		if len(num) <= 3 && isDigits(num) {
-			for i+1 < len(toks) && toks[i+1].kind == tokNumber && len(toks[i+1].text) == 3 && isDigits(toks[i+1].text) {
-				num += toks[i+1].text
+			for i+1 < len(toks) && toks[i+1].Kind == textnorm.KindNumber && len(toks[i+1].Text) == 3 && isDigits(toks[i+1].Text) {
+				num += toks[i+1].Text
 				i++
 			}
 		}
 
 		mult, hasCurrency := int64(1), false
 		j := i + 1
-		if j < len(toks) && toks[j].kind == tokWord {
-			if m, ok := multipliers[toks[j].text]; ok {
+		if j < len(toks) && toks[j].Kind == textnorm.KindWord {
+			if m, ok := multipliers[toks[j].Text]; ok {
 				mult = m
 				j++
 			}
 		}
-		if j < len(toks) && currencies[toks[j].text] {
+		if j < len(toks) && currencies[toks[j].Text] {
 			hasCurrency = true
 			j++
 		}
@@ -78,7 +80,7 @@ func parseAmounts(toks []token) []Amount {
 			continue
 		}
 		m := domain.Money(total)
-		res = append(res, Amount{Value: m, Large: m > LargeAmount, first: first, last: j - 1})
+		res = append(res, Amount{Value: m, Large: m > LargeAmount, First: first, Last: j - 1})
 		i = j - 1
 	}
 	return res
@@ -151,7 +153,7 @@ func isDigits(s string) bool {
 // сумма, которой нет в сообщении, - выдумка модели.
 func ParseAmounts(text string) []domain.Money {
 	var out []domain.Money
-	for _, a := range parseAmounts(tokenize(Normalize(text))) {
+	for _, a := range Amounts(textnorm.Tokenize(textnorm.Normalize(text))) {
 		out = append(out, a.Value)
 	}
 	return out

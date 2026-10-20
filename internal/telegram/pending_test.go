@@ -10,9 +10,12 @@ import (
 
 	"expense-bot/internal/agent"
 	"expense-bot/internal/domain"
+	"expense-bot/internal/limits"
 	"expense-bot/internal/llm"
+	"expense-bot/internal/nlp/category"
+	"expense-bot/internal/nlp/filter"
+	"expense-bot/internal/nlp/lexicon"
 	"expense-bot/internal/onboarding"
-	"expense-bot/internal/pipeline"
 	"expense-bot/internal/service"
 )
 
@@ -23,14 +26,14 @@ func TestFirstExpenseOfNewUserIsRecordedAfterOnboarding(t *testing.T) {
 	s, tg, b, sender := newBroadcaster(t)
 	fams := service.NewFamilies(s, service.FamiliesConfig{MaxMembers: 10, InviteTTL: time.Hour, InviteMaxUses: 10, DefaultTZ: "Europe/Moscow"})
 	exp := service.NewExpenses(s, "Europe/Moscow")
-	dict, err := pipeline.LoadDictionary("../../config/synonyms.yaml")
+	dict, err := lexicon.LoadDictionary("../../config/synonyms.yaml")
 	require.NoError(t, err)
-	cat := pipeline.NewCategorizer(dict, nil, nil, time.Second)
-	ag := agent.New(llm.NewFake(), exp, dict, cat, pipeline.NewAnalyzer(dict, cat, 300), nil, agent.Config{Mode: "tools", MaxTokens: 200})
+	cat := category.NewCategorizer(dict, nil, nil, time.Second)
+	ag := agent.New(llm.NewFake(), exp, dict, cat, filter.NewAnalyzer(dict, cat, 300), nil, agent.Config{Mode: "tools", MaxTokens: 200})
 	h := NewHandler(HandlerDeps{
 		Store: s, Families: fams, Agent: ag, Sender: sender, API: NewAPI("http://127.0.0.1:9", "x"), Broadcast: b,
 		FSM:     onboarding.New(s, fams, "Europe/Moscow", time.Hour, func() string { return "bot" }),
-		Limiter: pipeline.NewRateLimiter(100, time.Minute), BotUsername: func() string { return "bot" }, AppTZ: "Europe/Moscow",
+		Limiter: limits.NewRateLimiter(100, time.Minute), BotUsername: func() string { return "bot" }, AppTZ: "Europe/Moscow",
 	})
 	say := func(text string) string {
 		t.Helper()
@@ -66,13 +69,13 @@ func TestInviteCodeIsNotMistakenForExpense(t *testing.T) {
 	_, inv, err := fams.CreateFamily(ctx, 1, "Ивановы")
 	require.NoError(t, err)
 	exp := service.NewExpenses(s, "Europe/Moscow")
-	dict, _ := pipeline.LoadDictionary("../../config/synonyms.yaml")
-	cat := pipeline.NewCategorizer(dict, nil, nil, time.Second)
+	dict, _ := lexicon.LoadDictionary("../../config/synonyms.yaml")
+	cat := category.NewCategorizer(dict, nil, nil, time.Second)
 	h := NewHandler(HandlerDeps{
 		Store: s, Families: fams, Sender: sender, API: NewAPI("http://127.0.0.1:9", "x"), Broadcast: b,
-		Agent:   agent.New(llm.NewFake(), exp, dict, cat, pipeline.NewAnalyzer(dict, cat, 300), nil, agent.Config{}),
+		Agent:   agent.New(llm.NewFake(), exp, dict, cat, filter.NewAnalyzer(dict, cat, 300), nil, agent.Config{}),
 		FSM:     onboarding.New(s, fams, "Europe/Moscow", time.Hour, func() string { return "bot" }),
-		Limiter: pipeline.NewRateLimiter(100, time.Minute), BotUsername: func() string { return "bot" },
+		Limiter: limits.NewRateLimiter(100, time.Minute), BotUsername: func() string { return "bot" },
 	})
 	require.NoError(t, h.message(ctx, &Message{From: &User{ID: 8}, Chat: Chat{ID: 8, Type: "private"}, Text: service.FormatInviteCode(inv.Code)}))
 	assert.Contains(t, tg.messages(8)[0].Text, "присоединились", "код приглашения - это вступление, а не трата")
@@ -91,13 +94,13 @@ func TestLeaveAndDeleteConfirmedByText(t *testing.T) {
 		require.NoError(t, s.SetUserState(ctx, id, domain.StateActive, nil))
 	}
 	exp := service.NewExpenses(s, "UTC")
-	dict, _ := pipeline.LoadDictionary("../../config/synonyms.yaml")
-	cat := pipeline.NewCategorizer(dict, nil, nil, time.Second)
+	dict, _ := lexicon.LoadDictionary("../../config/synonyms.yaml")
+	cat := category.NewCategorizer(dict, nil, nil, time.Second)
 	h := NewHandler(HandlerDeps{
 		Store: s, Families: fams, Sender: sender, API: NewAPI("http://127.0.0.1:9", "x"), Broadcast: b,
-		Agent:   agent.New(llm.NewFake(), exp, dict, cat, pipeline.NewAnalyzer(dict, cat, 300), nil, agent.Config{}),
+		Agent:   agent.New(llm.NewFake(), exp, dict, cat, filter.NewAnalyzer(dict, cat, 300), nil, agent.Config{}),
 		FSM:     onboarding.New(s, fams, "UTC", time.Hour, func() string { return "bot" }),
-		Limiter: pipeline.NewRateLimiter(100, time.Minute), BotUsername: func() string { return "bot" },
+		Limiter: limits.NewRateLimiter(100, time.Minute), BotUsername: func() string { return "bot" },
 	})
 	say := func(id int64, text string) string {
 		t.Helper()

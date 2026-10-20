@@ -25,7 +25,7 @@ func (m Money) String() string {
 }
 
 // ParseMoney разбирает строгий формат API: "350", "350.5", "350.50".
-// Разговорные формы («1.5к», «1 200 р») разбирает pipeline, не этот код.
+// Разговорные формы («1.5к», «1 200 р») разбирает пакет nlp/parse, не этот код.
 func ParseMoney(s string) (Money, error) {
 	whole, frac, hasFrac := strings.Cut(s, ".")
 	if whole == "" || strings.HasPrefix(whole, "-") || strings.HasPrefix(whole, "+") ||

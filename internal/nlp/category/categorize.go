@@ -1,4 +1,4 @@
-package pipeline
+package category
 
 import (
 	"context"
@@ -7,6 +7,10 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"expense-bot/internal/nlp/lexicon"
+	"expense-bot/internal/nlp/textnorm"
+	"expense-bot/internal/nlp/thesaurus"
 
 	"expense-bot/internal/domain"
 	"expense-bot/internal/metrics"
@@ -23,6 +27,12 @@ const (
 )
 
 // LearnedStore - кэш выученных слов (postgres.Store).
+// Thesaurus - онлайн-источник связанных слов (реализация - thesaurus.Wiktionary). Lookup
+// принимает точные заголовки статей и возвращает связанные слова для существующих.
+type Thesaurus interface {
+	Lookup(ctx context.Context, titles []string) (map[string]thesaurus.Related, error)
+}
+
 type LearnedStore interface {
 	GetLearnedTerm(ctx context.Context, stem string) (domain.LearnedTerm, error)
 	SaveLearnedTerm(ctx context.Context, t domain.LearnedTerm) error
@@ -38,7 +48,7 @@ const (
 
 // Guess - результат распознавания категории.
 type Guess struct {
-	Term   Term
+	Term   lexicon.Term
 	Source Source
 }
 
@@ -50,7 +60,7 @@ func (g Guess) Found() bool { return g.Source != SourceNone }
 //  3. онлайн-тезаурус (голосование гиперонимов и синонимов из Викисловаря), результат кэшируется;
 //  4. не нашли - SourceNone, решение за LLM (после фильтра запретов).
 type Categorizer struct {
-	dict    *Dictionary
+	dict    *lexicon.Dictionary
 	store   LearnedStore // nil - без кэша
 	thes    Thesaurus    // nil - без онлайн-поиска
 	timeout time.Duration
@@ -59,7 +69,7 @@ type Categorizer struct {
 	now     func() time.Time
 }
 
-func NewCategorizer(dict *Dictionary, store LearnedStore, thes Thesaurus, timeout time.Duration) *Categorizer {
+func NewCategorizer(dict *lexicon.Dictionary, store LearnedStore, thes Thesaurus, timeout time.Duration) *Categorizer {
 	return &Categorizer{
 		dict: dict, store: store, thes: thes, timeout: timeout,
 		sem: make(chan struct{}, 2), now: time.Now,
@@ -93,7 +103,7 @@ func (c *Categorizer) categorize(ctx context.Context, words []string) Guess {
 			online = append(online, w)
 			continue
 		}
-		t, err := c.store.GetLearnedTerm(ctx, Stem(w))
+		t, err := c.store.GetLearnedTerm(ctx, textnorm.Stem(w))
 		switch {
 		case errors.Is(err, domain.ErrNotFound):
 			online = append(online, w)
@@ -101,7 +111,7 @@ func (c *Categorizer) categorize(ctx context.Context, words []string) Guess {
 			slog.WarnContext(ctx, "learned term lookup failed", "err", err)
 			online = append(online, w)
 		case t.Category != "":
-			return Guess{Term: Term{Title: t.Title, Category: t.Category}, Source: SourceLearned}
+			return Guess{Term: lexicon.Term{Title: t.Title, Category: t.Category}, Source: SourceLearned}
 		case c.now().Sub(t.UpdatedAt) > negativeCacheTTL:
 			online = append(online, w) // отрицательный кэш устарел
 		}
@@ -115,13 +125,13 @@ func (c *Categorizer) categorize(ctx context.Context, words []string) Guess {
 }
 
 // Learn сохраняет категорию, которую определила LLM, чтобы в следующий раз обойтись без неё.
-func (c *Categorizer) Learn(ctx context.Context, word string, term Term) {
+func (c *Categorizer) Learn(ctx context.Context, word string, term lexicon.Term) {
 	if c.store == nil || !term.Category.Valid() {
 		return
 	}
-	word = Normalize(word)
+	word = textnorm.Normalize(word)
 	if err := c.store.SaveLearnedTerm(ctx, domain.LearnedTerm{
-		Stem: Stem(word), Word: word, Title: term.Title, Category: term.Category, Source: "llm",
+		Stem: textnorm.Stem(word), Word: word, Title: term.Title, Category: term.Category, Source: "llm",
 	}); err != nil {
 		slog.WarnContext(ctx, "save learned term failed", "err", err)
 	}
@@ -147,7 +157,7 @@ func (c *Categorizer) unknownWords(words []string) []string {
 	var out []string
 	for _, w := range words {
 		n := utf8.RuneCountInString(w)
-		if n < 3 || n > 30 || !isCyrillic(w) || c.dict.fillers[w] {
+		if n < 3 || n > 30 || !textnorm.IsCyrillic(w) || c.dict.IsFiller(w) {
 			continue
 		}
 		out = append(out, w)
@@ -173,7 +183,7 @@ func (c *Categorizer) fromThesaurus(ctx context.Context, word string) (Guess, bo
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	cands := lemmaCandidates(word)
+	cands := thesaurus.LemmaCandidates(word)
 	pages, err := c.thes.Lookup(ctx, cands)
 	if err != nil {
 		c.breaker.fail(c.now())
@@ -182,7 +192,7 @@ func (c *Categorizer) fromThesaurus(ctx context.Context, word string) (Guess, bo
 	}
 	c.breaker.success()
 
-	lemma, rel := "", Related{}
+	lemma, rel := "", thesaurus.Related{}
 	for _, cand := range cands {
 		if r, ok := pages[cand]; ok {
 			lemma, rel = cand, r
@@ -193,7 +203,7 @@ func (c *Categorizer) fromThesaurus(ctx context.Context, word string) (Guess, bo
 		lemma = word
 	}
 	found := func(cat domain.Category) (Guess, bool) {
-		g := Guess{Term: Term{Title: lemma, Category: cat}, Source: SourceOnline}
+		g := Guess{Term: lexicon.Term{Title: lemma, Category: cat}, Source: SourceOnline}
 		c.save(ctx, word, g.Term)
 		return g, true
 	}
@@ -221,14 +231,14 @@ func (c *Categorizer) fromThesaurus(ctx context.Context, word string) (Guess, bo
 			return Guess{}, false
 		}
 		for _, n := range next {
-			v.add(Related{Hypernyms: pages[n].Hypernyms}) // синонимы второго уровня слишком далеки
+			v.add(thesaurus.Related{Hypernyms: pages[n].Hypernyms}) // синонимы второго уровня слишком далеки
 		}
 		if cat, ok := v.winner(); ok {
 			return found(cat)
 		}
 	}
 	// Слово проверено и не распознано: отрицательный кэш, чтобы не ходить в сеть повторно.
-	c.save(ctx, word, Term{Title: lemma})
+	c.save(ctx, word, lexicon.Term{Title: lemma})
 	return Guess{}, false
 }
 
@@ -242,13 +252,13 @@ const (
 )
 
 type vote struct {
-	dict   *Dictionary
+	dict   *lexicon.Dictionary
 	scores map[domain.Category]int
 }
 
 func (c *Categorizer) newVote() *vote { return &vote{dict: c.dict, scores: map[domain.Category]int{}} }
 
-func (v *vote) add(r Related) {
+func (v *vote) add(r thesaurus.Related) {
 	for _, w := range r.Hypernyms {
 		if t, ok := v.dict.LookupWord(w); ok {
 			v.scores[t.Category] += hypernymWeight
@@ -275,12 +285,12 @@ func (v *vote) winner() (domain.Category, bool) {
 	return best, bestScore >= minVotes && bestScore > second
 }
 
-func (c *Categorizer) save(ctx context.Context, word string, t Term) {
+func (c *Categorizer) save(ctx context.Context, word string, t lexicon.Term) {
 	if c.store == nil {
 		return
 	}
 	if err := c.store.SaveLearnedTerm(ctx, domain.LearnedTerm{
-		Stem: Stem(word), Word: word, Title: t.Title, Category: t.Category, Source: "wiktionary",
+		Stem: textnorm.Stem(word), Word: word, Title: t.Title, Category: t.Category, Source: "wiktionary",
 	}); err != nil {
 		slog.WarnContext(ctx, "save learned term failed", "err", err)
 	}

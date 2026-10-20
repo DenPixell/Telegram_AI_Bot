@@ -1,4 +1,4 @@
-package pipeline
+package lexicon
 
 import (
 	"errors"
@@ -6,6 +6,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"expense-bot/internal/nlp/textnorm"
 
 	"go.yaml.in/yaml/v3"
 
@@ -94,12 +96,12 @@ func ParseDictionary(b []byte) (*Dictionary, error) {
 		// Title для показа - как в файле (с «ё»), ключи поиска - нормализованные.
 		term := Term{Title: strings.ToLower(strings.TrimSpace(title)), Category: cat}
 		for _, form := range append([]string{title}, def.Aliases...) {
-			words := wordsOf(Normalize(form))
+			words := textnorm.Words(textnorm.Normalize(form))
 			if len(words) == 0 {
 				errs = append(errs, fmt.Errorf("term %q: alias %q has no words", title, form))
 				continue
 			}
-			key := stemPhrase(words)
+			key := textnorm.StemPhrase(words)
 			if prev, ok := d.phrases[key]; ok && prev.Category != term.Category {
 				errs = append(errs, fmt.Errorf("alias %q of %q (%s) conflicts with %q (%s)",
 					form, title, term.Category, prev.Title, prev.Category))
@@ -117,20 +119,20 @@ func ParseDictionary(b []byte) (*Dictionary, error) {
 			continue
 		}
 		for _, w := range words {
-			d.actions[Stem(Normalize(w))] = kind
+			d.actions[textnorm.Stem(textnorm.Normalize(w))] = kind
 		}
 	}
 	for _, w := range f.StopWords.Hard {
-		d.hardStop[Stem(Normalize(w))] = true
+		d.hardStop[textnorm.Stem(textnorm.Normalize(w))] = true
 	}
 	for _, w := range f.StopWords.Soft {
-		d.softStop[Stem(Normalize(w))] = true
+		d.softStop[textnorm.Stem(textnorm.Normalize(w))] = true
 	}
 	for _, p := range f.StopWords.Phrases {
-		d.stopPhrases = append(d.stopPhrases, strings.Join(wordsOf(Normalize(p)), " "))
+		d.stopPhrases = append(d.stopPhrases, strings.Join(textnorm.Words(textnorm.Normalize(p)), " "))
 	}
 	for _, w := range f.FillerWords {
-		d.fillers[Normalize(w)] = true
+		d.fillers[textnorm.Normalize(w)] = true
 	}
 	if len(d.phrases) == 0 {
 		errs = append(errs, errors.New("dictionary has no terms"))
@@ -154,7 +156,7 @@ type Match struct {
 func (d *Dictionary) Lookup(words []string) []Match {
 	stems := make([]string, len(words))
 	for i, w := range words {
-		stems[i] = Stem(w)
+		stems[i] = textnorm.Stem(w)
 	}
 	var res []Match
 	for i := 0; i < len(words); {
@@ -176,7 +178,7 @@ func (d *Dictionary) Lookup(words []string) []Match {
 			// «ресторан». Повторный стемминг основы сводит формы к одному ключу.
 			// Уменьшительные формы: «мандаринчики» -> «мандарин», «кофеечек» -> «кофе».
 			if !d.fillers[words[i]] {
-				for _, v := range append([]string{Stem(stems[i])}, diminutiveStems(stems[i])...) {
+				for _, v := range append([]string{textnorm.Stem(stems[i])}, diminutiveStems(stems[i])...) {
 					if t, ok := d.phrases[v]; ok {
 						res = append(res, Match{Term: t, Start: i, End: i + 1})
 						break
@@ -197,7 +199,7 @@ func diminutiveStems(stem string) []string {
 	var out []string
 	for _, suf := range diminutiveSuffixes {
 		if base, ok := strings.CutSuffix(stem, suf); ok && len([]rune(base)) >= 3 {
-			out = append(out, base, Stem(base+"а"), Stem(base+"о"))
+			out = append(out, base, textnorm.Stem(base+"а"), textnorm.Stem(base+"о"))
 		}
 	}
 	return out
@@ -205,8 +207,8 @@ func diminutiveStems(stem string) []string {
 
 // LookupWord - термин для одного слова или фразы (для онлайн-тезауруса и кэша).
 func (d *Dictionary) LookupWord(word string) (Term, bool) {
-	words := wordsOf(Normalize(word))
-	if t, ok := d.phrases[stemPhrase(words)]; ok {
+	words := textnorm.Words(textnorm.Normalize(word))
+	if t, ok := d.phrases[textnorm.StemPhrase(words)]; ok {
 		return t, true
 	}
 	if m := d.Lookup(words); len(m) == 1 && m[0].End-m[0].Start == len(words) {
@@ -218,8 +220,8 @@ func (d *Dictionary) LookupWord(word string) (Term, bool) {
 // Expand возвращает все формы терминов, найденных в запросе, для поиска в панели и боте:
 // «рестик» -> [ресторан, рестик, ресторанчик, ...]. Если терминов нет - сам запрос.
 func (d *Dictionary) Expand(query string) []string {
-	q := Normalize(query)
-	matches := d.Lookup(wordsOf(q))
+	q := textnorm.Normalize(query)
+	matches := d.Lookup(textnorm.Words(q))
 	if len(matches) == 0 {
 		return []string{q}
 	}
@@ -242,13 +244,32 @@ func (d *Dictionary) Expand(query string) []string {
 	return out
 }
 
-// wordsOf - только словесные токены текста.
-func wordsOf(s string) []string {
-	var out []string
-	for _, t := range tokenize(s) {
-		if t.kind == tokWord {
-			out = append(out, t.text)
+// Правила фильтра из того же файла словаря. Все проверки принимают основу слова (textnorm.Stem),
+// кроме IsFiller и HasStopPhrase, которым нужны нормализованные слова.
+
+// IsHardStop - запрещённая тема: сообщение отклоняется всегда.
+func (d *Dictionary) IsHardStop(stem string) bool { return d.hardStop[stem] }
+
+// IsSoftStop - подозрительное слово: отклоняется, только если в сообщении нет действия
+// и известной траты.
+func (d *Dictionary) IsSoftStop(stem string) bool { return d.softStop[stem] }
+
+// Action - действие над тратами, которое обозначает слово («покажи», «удали»).
+func (d *Dictionary) Action(stem string) (ActionKind, bool) {
+	k, ok := d.actions[stem]
+	return k, ok
+}
+
+// IsFiller - служебное слово («в», «на», «поход»): не описывает трату само по себе.
+func (d *Dictionary) IsFiller(word string) bool { return d.fillers[word] }
+
+// HasStopPhrase - в словах есть запрещённая фраза целиком.
+func (d *Dictionary) HasStopPhrase(words []string) bool {
+	joined := " " + strings.Join(words, " ") + " "
+	for _, p := range d.stopPhrases {
+		if strings.Contains(joined, " "+p+" ") {
+			return true
 		}
 	}
-	return out
+	return false
 }

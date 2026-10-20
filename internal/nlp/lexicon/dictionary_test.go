@@ -1,7 +1,9 @@
-package pipeline
+package lexicon
 
 import (
 	"testing"
+
+	"expense-bot/internal/nlp/textnorm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,7 +43,7 @@ func TestLookup(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.text, func(t *testing.T) {
-			m := d.Lookup(wordsOf(Normalize(c.text)))
+			m := d.Lookup(textnorm.Words(textnorm.Normalize(c.text)))
 			if c.title == "" {
 				assert.Empty(t, m)
 				return
@@ -55,7 +57,7 @@ func TestLookup(t *testing.T) {
 
 func TestLookupLongestMatchFirst(t *testing.T) {
 	d := testDict(t)
-	m := d.Lookup(wordsOf(Normalize("маршрутное такси")))
+	m := d.Lookup(textnorm.Words(textnorm.Normalize("маршрутное такси")))
 	require.Len(t, m, 1)
 	assert.Equal(t, "автобус", m[0].Term.Title, "«маршрутное такси» - не «такси»")
 }
@@ -91,9 +93,9 @@ func TestParseDictionaryRejectsUnknownCategory(t *testing.T) {
 
 func TestStemNormalizesForms(t *testing.T) {
 	for _, pair := range [][2]string{{"такси", "такси"}, {"аптека", "аптеку"}, {"продукты", "продуктов"}} {
-		assert.Equal(t, Stem(pair[0]), Stem(pair[1]), pair)
+		assert.Equal(t, textnorm.Stem(pair[0]), textnorm.Stem(pair[1]), pair)
 	}
-	assert.Equal(t, "netflix", Stem("netflix"), "латиница не стеммится")
+	assert.Equal(t, "netflix", textnorm.Stem("netflix"), "латиница не стеммится")
 }
 
 // Стеммер несимметричен на части слов («ресторан» -> «рестора», «ресторане» -> «ресторан»):
@@ -106,4 +108,12 @@ func TestLookupAllCaseForms(t *testing.T) {
 			assert.Equal(t, "ресторан", m[0].Term.Title, w)
 		}
 	}
+}
+
+// testDict - настоящий словарь из config/synonyms.yaml: тесты ловят и ошибки в данных.
+func testDict(t testing.TB) *Dictionary {
+	t.Helper()
+	d, err := LoadDictionary("../../../config/synonyms.yaml")
+	require.NoError(t, err)
+	return d
 }

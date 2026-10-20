@@ -12,7 +12,7 @@ import (
 
 	"expense-bot/internal/domain"
 	"expense-bot/internal/llm"
-	"expense-bot/internal/pipeline"
+	"expense-bot/internal/nlp/parse"
 	"expense-bot/internal/service"
 	"expense-bot/internal/timezone"
 )
@@ -482,4 +482,4 @@ func joinMoney(ms []domain.Money) string {
 }
 
 // largeAmount - выше этого трата требует подтверждения (как и в простом пути без LLM).
-const largeAmount = pipeline.LargeAmount
+const largeAmount = parse.LargeAmount

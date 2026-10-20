@@ -1,4 +1,4 @@
-package pipeline
+package thesaurus
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"expense-bot/internal/nlp/textnorm"
 )
 
 // Related - связанные слова статьи. Гиперонимы надёжнее: синонимы многозначных слов
@@ -17,12 +19,6 @@ import (
 type Related struct {
 	Hypernyms []string
 	Synonyms  []string
-}
-
-// Thesaurus - онлайн-источник связанных слов. Lookup принимает точные заголовки статей
-// и возвращает связанные слова для существующих.
-type Thesaurus interface {
-	Lookup(ctx context.Context, titles []string) (map[string]Related, error)
 }
 
 // DefaultWiktionaryURL - API русского Викисловаря (бесплатно, без ключа).
@@ -43,7 +39,7 @@ func NewWiktionary(endpoint string, timeout time.Duration) *Wiktionary {
 }
 
 // Правила Wikimedia требуют осмысленный User-Agent с контактом.
-const wikiUserAgent = "expense-bot/1.0 (https://github.com/DenPixell/Telegram_AI_Bot)"
+const wikiUserAgent = "expense-bot/1.0 (https://github.com/DenPixell/Telegram_Ai_Budget_Bot)"
 
 const maxWikiResponse = 4 << 20
 
@@ -166,8 +162,8 @@ func relatedFromWikitext(text string) Related {
 			continue
 		}
 		for _, l := range wikiLink.FindAllStringSubmatch(line, -1) {
-			w := Normalize(strings.TrimSpace(l[1]))
-			if w != "" && isCyrillic(w) && len([]rune(w)) <= 40 {
+			w := textnorm.Normalize(strings.TrimSpace(l[1]))
+			if w != "" && textnorm.IsCyrillic(w) && len([]rune(w)) <= 40 {
 				*cur = append(*cur, w)
 			}
 		}
@@ -189,8 +185,8 @@ func uniq(ws []string) []string {
 
 // lemmaCandidates - вероятные начальные формы слова для поиска статьи:
 // «шаурмой» -> шаурмой, шаурма, шаурм, ... Порядок - от более вероятных.
-func lemmaCandidates(word string) []string {
-	stem := Stem(word)
+func LemmaCandidates(word string) []string {
+	stem := textnorm.Stem(word)
 	cands := []string{word}
 	for _, end := range []string{"а", "", "о", "ь", "я", "е", "й", "ы", "и"} {
 		cands = append(cands, stem+end)

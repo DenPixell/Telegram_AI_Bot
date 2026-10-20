@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"expense-bot/internal/domain"
-	"expense-bot/internal/pipeline"
+	"expense-bot/internal/nlp/filter"
 	"expense-bot/internal/timezone"
 )
 
@@ -30,11 +30,11 @@ const (
 	msgError         = "Что-то пошло не так, попробуйте ещё раз."
 )
 
-func rejectMessage(r pipeline.RejectReason) string {
+func rejectMessage(r filter.RejectReason) string {
 	switch r {
-	case pipeline.ReasonTooLong:
+	case filter.ReasonTooLong:
 		return msgTooLong
-	case pipeline.ReasonEmpty:
+	case filter.ReasonEmpty:
 		return msgEmpty
 	}
 	return msgOffTopic

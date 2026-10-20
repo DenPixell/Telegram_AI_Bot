@@ -9,12 +9,21 @@
 cmd/server/            единственный бинарник: REST API + Telegram-бот
 internal/config        ENV -> Config, валидация при старте
 internal/domain        сущности и ошибки, без зависимостей
-internal/service       бизнес-правила, единственная точка мутаций, принимает domain.Actor
+internal/service       бизнес-правила, единственная точка мутаций, принимает domain.Actor;
+                       хранилище видит только через свои интерфейсы (store.go)
 internal/storage/postgres  pgx, миграции goose (embed, advisory lock)
 internal/httpapi       REST панели: DTO, сессии, CSRF, маппинг ошибок
 internal/telegram      long polling, дедуп, исходящий лимитер
 internal/onboarding    FSM регистрации
-internal/pipeline      лимиты, служебные намерения, фильтр, синонимы
+internal/limits        rate limit на пользователя, суточные квоты LLM
+internal/nlp/          разбор текста до LLM, по пакету на задачу:
+  textnorm             нормализация, токены, основы слов
+  parse                суммы и даты
+  lexicon              словарь config/synonyms.yaml, действия, стоп-слова
+  thesaurus            клиент Викисловаря
+  category             гибридная категория: словарь, кэш, тезаурус
+  intent               служебные команды без LLM
+  filter               решение по сообщению: отказ, уточнение, трата, агент
 internal/agent         tools, промпт, рендер ответов по шаблонам
 internal/timezone      разбор часовых поясов
 internal/llm           OpenAI-совместимый клиент, fallback, breaker, fake
@@ -27,6 +36,9 @@ deploy/                Dockerfile бэкенда, Caddyfile, скрипт бэк
 ## Правила
 
 - Стандартная библиотека в приоритете. Новая зависимость только с обоснованием.
+- Интерфейсы объявляет потребитель (пакет, который их использует), реализация возвращает конкретный тип.
+  `service` не импортирует `storage/postgres`, связывание - в `cmd/server`.
+- Пакет - одна ответственность. Если пакет растёт за 6-8 файлов логики или меняется по разным причинам, делить.
 - `context.Context` первым аргументом. Ошибки оборачивать через `fmt.Errorf("...: %w", err)`.
 - `user_id` и `family_id` берутся **только** из Telegram-апдейта или сессии. Никогда из ответа модели или тела запроса.
 - Каждый SQL-запрос к пользовательским данным содержит `family_id` (и `user_id` для бота).

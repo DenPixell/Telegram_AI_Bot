@@ -12,8 +12,11 @@ import (
 	"expense-bot/internal/agent"
 	"expense-bot/internal/config"
 	"expense-bot/internal/domain"
+	"expense-bot/internal/limits"
 	"expense-bot/internal/llm"
-	"expense-bot/internal/pipeline"
+	"expense-bot/internal/nlp/category"
+	"expense-bot/internal/nlp/filter"
+	"expense-bot/internal/nlp/lexicon"
 	"expense-bot/internal/service"
 	"expense-bot/internal/storage/postgres"
 	"expense-bot/internal/testutil/pgtest"
@@ -50,9 +53,9 @@ func newWorld(t *testing.T, opts ...func(*setup)) *world {
 	anya, _ := fams.Actor(ctx, 1)
 	borya, _ := fams.Actor(ctx, 2)
 
-	dict, err := pipeline.LoadDictionary("../../config/synonyms.yaml")
+	dict, err := lexicon.LoadDictionary("../../config/synonyms.yaml")
 	require.NoError(t, err)
-	cat := pipeline.NewCategorizer(dict, s, nil, time.Second) // без онлайн-тезауруса
+	cat := category.NewCategorizer(dict, s, nil, time.Second) // без онлайн-тезауруса
 	exp := service.NewExpenses(s, "Europe/Moscow")
 	today, err := exp.Today(ctx, 1)
 	require.NoError(t, err)
@@ -62,11 +65,11 @@ func newWorld(t *testing.T, opts ...func(*setup)) *world {
 		o(st)
 	}
 	client := llm.WithUsage(st.fake, s, "fake") // учёт нужен для квот
-	quota := pipeline.NewQuota(s, st.quotaUser, 1000, 0)
+	quota := limits.NewQuota(s, st.quotaUser, 1000, 0)
 	if st.quotaUser == 0 {
-		quota = pipeline.NewQuota(s, 100, 1000, 0)
+		quota = limits.NewQuota(s, 100, 1000, 0)
 	}
-	a := agent.New(client, exp, dict, cat, pipeline.NewAnalyzer(dict, cat, 300), quota,
+	a := agent.New(client, exp, dict, cat, filter.NewAnalyzer(dict, cat, 300), quota,
 		agent.Config{Mode: st.mode, MaxTokens: 200})
 	return &world{t: t, store: s, expenses: exp, fake: st.fake, agent: a, anya: anya, borya: borya, today: today}
 }

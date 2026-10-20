@@ -1,4 +1,4 @@
-package pipeline
+package category
 
 import (
 	"context"
@@ -6,6 +6,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"expense-bot/internal/nlp/lexicon"
+	"expense-bot/internal/nlp/textnorm"
+	"expense-bot/internal/nlp/thesaurus"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,19 +20,19 @@ import (
 // fakeThesaurus отвечает по таблице и считает запросы.
 type fakeThesaurus struct {
 	mu    sync.Mutex
-	pages map[string]Related
+	pages map[string]thesaurus.Related
 	err   error
 	calls int
 }
 
-func (f *fakeThesaurus) Lookup(_ context.Context, titles []string) (map[string]Related, error) {
+func (f *fakeThesaurus) Lookup(_ context.Context, titles []string) (map[string]thesaurus.Related, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
 	if f.err != nil {
 		return nil, f.err
 	}
-	out := map[string]Related{}
+	out := map[string]thesaurus.Related{}
 	for _, t := range titles {
 		if r, ok := f.pages[t]; ok {
 			out[t] = r
@@ -77,7 +81,7 @@ func TestCategorizeDictionaryFirst(t *testing.T) {
 }
 
 func TestCategorizeOnlineHypernymWins(t *testing.T) {
-	th := &fakeThesaurus{pages: map[string]Related{"пельмень": {Hypernyms: []string{"блюдо"}}}}
+	th := &fakeThesaurus{pages: map[string]thesaurus.Related{"пельмень": {Hypernyms: []string{"блюдо"}}}}
 	store := newMemStore()
 	c := NewCategorizer(testDict(t), store, th, time.Second)
 
@@ -96,7 +100,7 @@ func TestCategorizeOnlineHypernymWins(t *testing.T) {
 
 func TestCategorizeSingleSynonymDoesNotDecide(t *testing.T) {
 	// Регрессия: синоним «свет» у слова «день» уводил в электричество (жильё).
-	th := &fakeThesaurus{pages: map[string]Related{"день": {
+	th := &fakeThesaurus{pages: map[string]thesaurus.Related{"день": {
 		Hypernyms: []string{"период", "время"},
 		Synonyms:  []string{"свет", "сутки"},
 	}}}
@@ -113,7 +117,7 @@ func TestCategorizeSingleSynonymDoesNotDecide(t *testing.T) {
 func TestCategorizeAnimalBeatsRailwaySlang(t *testing.T) {
 	// Регрессия: у «собаки» в Викисловаре гипероним «поезд» и синоним «электричка» (жаргон).
 	// Обобщения про животных в словаре должны перевесить случайное значение.
-	th := &fakeThesaurus{pages: map[string]Related{"лемур": {
+	th := &fakeThesaurus{pages: map[string]thesaurus.Related{"лемур": {
 		Hypernyms: []string{"млекопитающее", "зверь", "поезд"},
 		Synonyms:  []string{"электричка"},
 	}}}
@@ -124,7 +128,7 @@ func TestCategorizeAnimalBeatsRailwaySlang(t *testing.T) {
 }
 
 func TestCategorizeSynonymsCanAgree(t *testing.T) {
-	th := &fakeThesaurus{pages: map[string]Related{"днюха": {Synonyms: []string{"праздник", "юбилей"}}}}
+	th := &fakeThesaurus{pages: map[string]thesaurus.Related{"днюха": {Synonyms: []string{"праздник", "юбилей"}}}}
 	c := NewCategorizer(testDict(t), newMemStore(), th, time.Second)
 	// «днюха» есть в словаре - проверяем на незнакомом слове с теми же синонимами.
 	th.pages["гулянка"] = th.pages["днюха"]
@@ -134,7 +138,7 @@ func TestCategorizeSynonymsCanAgree(t *testing.T) {
 }
 
 func TestCategorizeSecondHop(t *testing.T) {
-	th := &fakeThesaurus{pages: map[string]Related{
+	th := &fakeThesaurus{pages: map[string]thesaurus.Related{
 		"флэтуайтик":       {Hypernyms: []string{"кофейный напиток"}},
 		"кофейный напиток": {Hypernyms: []string{"напиток"}},
 	}}
@@ -158,24 +162,20 @@ func TestCategorizeBreakerStopsOnlineAfterFailures(t *testing.T) {
 func TestCategorizerLearnFromLLM(t *testing.T) {
 	store := newMemStore()
 	c := NewCategorizer(testDict(t), store, nil, time.Second)
-	c.Learn(context.Background(), "Фрыкадэлька", Term{Title: "фрикаделька", Category: domain.CategoryFood})
+	c.Learn(context.Background(), "Фрыкадэлька", lexicon.Term{Title: "фрикаделька", Category: domain.CategoryFood})
 	g := categorize(c, "фрыкадэльки")
 	assert.Equal(t, SourceLearned, g.Source)
 	assert.Equal(t, "фрикаделька", g.Term.Title)
 
-	c.Learn(context.Background(), "ерунда", Term{Title: "ерунда", Category: "крипта"})
-	_, err := store.GetLearnedTerm(context.Background(), Stem("ерунда"))
+	c.Learn(context.Background(), "ерунда", lexicon.Term{Title: "ерунда", Category: "крипта"})
+	_, err := store.GetLearnedTerm(context.Background(), textnorm.Stem("ерунда"))
 	assert.ErrorIs(t, err, domain.ErrNotFound, "невалидная категория не сохраняется")
 }
 
-func TestRelatedFromWikitext(t *testing.T) {
-	text := "= {{-ru-}} =\n==== Синонимы ====\n# [[кебаб]], [[донер-кебаб|донер]]\n==== Гиперонимы ====\n# [[блюдо]]\n==== Гипонимы ====\n# [[шаверма]]\n= {{-en-}} =\n==== Синонимы ====\n# [[wrap]]"
-	r := relatedFromWikitext(text)
-	assert.Equal(t, []string{"блюдо"}, r.Hypernyms)
-	assert.Equal(t, []string{"кебаб", "донер-кебаб"}, r.Synonyms, "только русская секция, без гипонимов")
-}
-
-func TestLemmaCandidates(t *testing.T) {
-	assert.Contains(t, lemmaCandidates("шаурмой"), "шаурма")
-	assert.Equal(t, "латте", lemmaCandidates("латте")[0], "само слово - первым")
+// testDict - настоящий словарь из config/synonyms.yaml: тесты ловят и ошибки в данных.
+func testDict(t testing.TB) *lexicon.Dictionary {
+	t.Helper()
+	d, err := lexicon.LoadDictionary("../../../config/synonyms.yaml")
+	require.NoError(t, err)
+	return d
 }

@@ -15,8 +15,13 @@ import (
 
 	"expense-bot/internal/config"
 	"expense-bot/internal/domain"
+	"expense-bot/internal/limits"
 	"expense-bot/internal/llm"
-	"expense-bot/internal/pipeline"
+	"expense-bot/internal/nlp/category"
+	"expense-bot/internal/nlp/filter"
+	"expense-bot/internal/nlp/lexicon"
+	"expense-bot/internal/nlp/parse"
+	"expense-bot/internal/nlp/textnorm"
 	"expense-bot/internal/service"
 )
 
@@ -28,10 +33,10 @@ type Config struct {
 type Agent struct {
 	llm      llm.Client
 	expenses *service.Expenses
-	dict     *pipeline.Dictionary
-	cat      *pipeline.Categorizer
-	analyzer *pipeline.Analyzer
-	quota    *pipeline.Quota // nil - без квот
+	dict     *lexicon.Dictionary
+	cat      *category.Categorizer
+	analyzer *filter.Analyzer
+	quota    *limits.Quota // nil - без квот
 	cfg      Config
 
 	hist    *history
@@ -41,8 +46,8 @@ type Agent struct {
 	now     func() time.Time
 }
 
-func New(client llm.Client, expenses *service.Expenses, dict *pipeline.Dictionary, cat *pipeline.Categorizer,
-	analyzer *pipeline.Analyzer, quota *pipeline.Quota, cfg Config) *Agent {
+func New(client llm.Client, expenses *service.Expenses, dict *lexicon.Dictionary, cat *category.Categorizer,
+	analyzer *filter.Analyzer, quota *limits.Quota, cfg Config) *Agent {
 	return &Agent{
 		llm: client, expenses: expenses, dict: dict, cat: cat, analyzer: analyzer, quota: quota, cfg: cfg,
 		hist: newHistory(), pending: newPendings(), refused: newRefusals(), locks: newUserLocks(), now: time.Now,
@@ -78,14 +83,14 @@ func (a *Agent) Handle(ctx context.Context, actor domain.Actor, text string) (Re
 
 	d := a.analyzer.Analyze(ctx, text, today)
 	switch d.Verdict {
-	case pipeline.VerdictReject:
+	case filter.VerdictReject:
 		return Reply{Text: rejectMessage(d.Reason)}, nil
-	case pipeline.VerdictNeedAmount:
+	case filter.VerdictNeedAmount:
 		pe := d.Expense
 		a.pending.set(actor.UserID, pending{kind: pendingAmount, at: now, words: pe.Words,
 			expense: domain.Expense{Title: pe.Title, Category: pe.Category, Comment: strings.TrimSpace(text)}})
 		return Reply{Text: renderNeedAmount(pe.Title)}, nil
-	case pipeline.VerdictExpense:
+	case filter.VerdictExpense:
 		pe := d.Expense
 		return a.create(ctx, actor, domain.Expense{
 			Amount: pe.Amount, Category: pe.Category, Title: pe.Title, SpentAt: pe.Date, Comment: pe.Comment,
@@ -97,7 +102,7 @@ func (a *Agent) Handle(ctx context.Context, actor domain.Actor, text string) (Re
 // resolvePending: ответ на уточнение без LLM. handled=false - это новое сообщение,
 // ожидание сбрасывается и текст обрабатывается обычным путём.
 func (a *Agent) resolvePending(ctx context.Context, actor domain.Actor, p pending, text string, today domain.Date) (Reply, bool, error) {
-	norm := strings.TrimRight(pipeline.Normalize(text), ".!")
+	norm := strings.TrimRight(textnorm.Normalize(text), ".!")
 	if isCancel(norm) {
 		return Reply{Text: msgCancelled}, true, nil
 	}
@@ -110,7 +115,7 @@ func (a *Agent) resolvePending(ctx context.Context, actor domain.Actor, p pendin
 	case pendingAmount:
 		// Ответ - только сумма: «350». Иначе это новая трата или вопрос.
 		d := a.analyzer.Analyze(ctx, text, today)
-		if d.Verdict == pipeline.VerdictAgent && d.Expense != nil && len(d.Expense.Words) == 0 {
+		if d.Verdict == filter.VerdictAgent && d.Expense != nil && len(d.Expense.Words) == 0 {
 			e := p.expense
 			e.Amount, e.SpentAt = d.Expense.Amount, d.Expense.Date
 			if !e.Category.Valid() {
@@ -190,13 +195,13 @@ func validationText(err error) string {
 }
 
 // runLLM - ступень 5: один запрос к модели (плюс максимум один повтор при ошибках аргументов).
-func (a *Agent) runLLM(ctx context.Context, actor domain.Actor, text string, d pipeline.Decision, today domain.Date) (Reply, error) {
-	norm := pipeline.Normalize(text)
+func (a *Agent) runLLM(ctx context.Context, actor domain.Actor, text string, d filter.Decision, today domain.Date) (Reply, error) {
+	norm := textnorm.Normalize(text)
 	if a.refused.has(norm, a.now()) {
 		return Reply{Text: msgOffTopic}, nil
 	}
 	if a.quota != nil {
-		if err := a.quota.Check(ctx, actor.UserID, actor.FamilyID); errors.Is(err, pipeline.ErrQuotaExceeded) {
+		if err := a.quota.Check(ctx, actor.UserID, actor.FamilyID); errors.Is(err, limits.ErrQuotaExceeded) {
 			slog.InfoContext(ctx, "llm quota exceeded", "user_id", actor.UserID, "err", err)
 			return Reply{Text: msgQuota}, nil
 		} else if err != nil {
@@ -217,8 +222,8 @@ func (a *Agent) runLLM(ctx context.Context, actor domain.Actor, text string, d p
 	req.Messages = append([]llm.Message{{Role: llm.RoleSystem, Content: sys}}, a.hist.get(actor.UserID, a.now())...)
 	req.Messages = append(req.Messages, llm.Message{Role: llm.RoleUser, Content: text})
 
-	ex := &executor{a: a, actor: actor, text: text, norm: norm, today: today, amounts: pipeline.ParseAmounts(text)}
-	ex.date, _ = pipeline.FindDate(text, today)
+	ex := &executor{a: a, actor: actor, text: text, norm: norm, today: today, amounts: parse.ParseAmounts(text)}
+	ex.date, _ = parse.FindDate(text, today)
 	var replies []string
 	for step := 1; step <= maxSteps; step++ {
 		resp, err := a.llm.Complete(ctx, req)
@@ -276,20 +281,20 @@ func (a *Agent) runLLM(ctx context.Context, actor domain.Actor, text string, d p
 // learn: если словарь и тезаурус не узнали слово, а модель записала трату с категорией,
 // запоминаем - в следующий раз обойдёмся без LLM. Только для однозначного случая:
 // одно слово названия и одна трата.
-func (a *Agent) learn(ctx context.Context, d pipeline.Decision, added []domain.Expense) {
-	if d.Expense == nil || d.Expense.Source != pipeline.SourceNone || len(d.Expense.Words) != 1 || len(added) != 1 {
+func (a *Agent) learn(ctx context.Context, d filter.Decision, added []domain.Expense) {
+	if d.Expense == nil || d.Expense.Source != category.SourceNone || len(d.Expense.Words) != 1 || len(added) != 1 {
 		return
 	}
 	e := added[0]
 	if e.Category == domain.CategoryOther {
 		return // «другое» - не знание о слове
 	}
-	a.cat.Learn(ctx, d.Expense.Words[0], pipeline.Term{Title: e.Title, Category: e.Category})
+	a.cat.Learn(ctx, d.Expense.Words[0], lexicon.Term{Title: e.Title, Category: e.Category})
 }
 
 // degrade - LLM недоступна: простую трату записываем в «другое» без модели,
 // иначе шаблонный ответ.
-func (a *Agent) degrade(ctx context.Context, actor domain.Actor, d pipeline.Decision, today domain.Date, err error) (Reply, error) {
+func (a *Agent) degrade(ctx context.Context, actor domain.Actor, d filter.Decision, today domain.Date, err error) (Reply, error) {
 	if errors.Is(err, context.Canceled) {
 		return Reply{}, err
 	}
@@ -384,11 +389,11 @@ func (a *Agent) LooksLikeExpense(ctx context.Context, userID int64, text string)
 	}
 	d := a.analyzer.Analyze(ctx, text, today)
 	switch d.Verdict {
-	case pipeline.VerdictExpense:
+	case filter.VerdictExpense:
 		return true
-	case pipeline.VerdictAgent:
+	case filter.VerdictAgent:
 		// Без слов действия («сколько», «удали») и с суммой: «кофе 350 и обед 600», «фигнюшка 500».
-		return d.Action == "" && len(pipeline.ParseAmounts(text)) > 0
+		return d.Action == "" && len(parse.ParseAmounts(text)) > 0
 	}
 	return false
 }

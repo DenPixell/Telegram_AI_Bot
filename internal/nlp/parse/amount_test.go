@@ -1,7 +1,9 @@
-package pipeline
+package parse
 
 import (
 	"testing"
+
+	"expense-bot/internal/nlp/textnorm"
 
 	"github.com/stretchr/testify/assert"
 
@@ -47,7 +49,7 @@ func TestParseAmounts(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {
 			var got []domain.Money
-			for _, a := range parseAmounts(tokenize(Normalize(c.in))) {
+			for _, a := range Amounts(textnorm.Tokenize(textnorm.Normalize(c.in))) {
 				got = append(got, a.Value)
 			}
 			assert.Equal(t, c.want, got)
@@ -56,16 +58,16 @@ func TestParseAmounts(t *testing.T) {
 }
 
 func TestParseAmountsLargeFlag(t *testing.T) {
-	a := parseAmounts(tokenize(Normalize("ремонт 15000000")))
+	a := Amounts(textnorm.Tokenize(textnorm.Normalize("ремонт 15000000")))
 	if assert.Len(t, a, 1) {
 		assert.True(t, a[0].Large, "выше 10 млн нужна подтверждение")
 	}
-	a = parseAmounts(tokenize(Normalize("ремонт 9000000")))
+	a = Amounts(textnorm.Tokenize(textnorm.Normalize("ремонт 9000000")))
 	if assert.Len(t, a, 1) {
 		assert.False(t, a[0].Large)
 	}
 	// Больше 1 млрд (CHECK в БД) не считается суммой вовсе.
-	assert.Empty(t, parseAmounts(tokenize(Normalize("2000000000 рублей"))))
+	assert.Empty(t, Amounts(textnorm.Tokenize(textnorm.Normalize("2000000000 рублей"))))
 }
 
 func FuzzParseAmounts(f *testing.F) {
@@ -73,7 +75,7 @@ func FuzzParseAmounts(f *testing.F) {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
-		for _, a := range parseAmounts(tokenize(Normalize(s))) {
+		for _, a := range Amounts(textnorm.Tokenize(textnorm.Normalize(s))) {
 			if !a.Value.Valid() {
 				t.Fatalf("invalid amount %d from %q", a.Value, s)
 			}

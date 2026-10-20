@@ -1,8 +1,10 @@
-package pipeline
+package filter
 
 import (
 	"strings"
 	"testing"
+
+	"expense-bot/internal/nlp/lexicon"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -95,17 +97,17 @@ func TestAnalyzeGoesToAgent(t *testing.T) {
 	a := testAnalyzer(t)
 	cases := []struct {
 		text   string
-		action ActionKind
+		action lexicon.ActionKind
 	}{
 		{"кофе 350 и обед 600", ""}, // несколько трат
-		{"последнее было не 350, а 450", ActionUpdate},
-		{"удали рестик", ActionDelete},
-		{"удали такси", ActionDelete},
-		{"сколько потратил на еду в этом месяце", ActionList},
-		{"покажи траты за неделю", ActionList},
-		{"посчитай мои расходы", ActionList}, // мягкое стоп-слово рядом со словом действия
-		{"фигнюшка 500", ""},                 // категория неизвестна - решит LLM
-		{"зефирка с кремом 99999", ""},       // две категории - неоднозначно
+		{"последнее было не 350, а 450", lexicon.ActionUpdate},
+		{"удали рестик", lexicon.ActionDelete},
+		{"удали такси", lexicon.ActionDelete},
+		{"сколько потратил на еду в этом месяце", lexicon.ActionList},
+		{"покажи траты за неделю", lexicon.ActionList},
+		{"посчитай мои расходы", lexicon.ActionList}, // мягкое стоп-слово рядом со словом действия
+		{"фигнюшка 500", ""},                         // категория неизвестна - решит LLM
+		{"зефирка с кремом 99999", ""},               // две категории - неоднозначно
 	}
 	for _, c := range cases {
 		t.Run(c.text, func(t *testing.T) {

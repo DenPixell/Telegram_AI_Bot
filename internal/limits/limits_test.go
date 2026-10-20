@@ -1,4 +1,4 @@
-package pipeline
+package limits
 
 import (
 	"context"
@@ -9,37 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestMatchIntent(t *testing.T) {
-	cases := []struct {
-		text string
-		kind IntentKind
-		arg  string
-	}{
-		{"помощь", IntentHelp, ""},
-		{"/help", IntentHelp, ""},
-		{"Панель!", IntentPanel, ""},
-		{"/panel@MyFamilyBudgetplus_Bot", IntentPanel, ""},
-		{"ссылка", IntentInvite, ""},
-		{"выйти из семьи", IntentLeave, ""},
-		{"удалить мои данные", IntentDeleteData, ""},
-		{"/tz", IntentTimezone, ""},
-		{"мой часовой пояс Новосибирск", IntentTimezone, "Новосибирск"},
-		{"/tz@bot Asia/Omsk", IntentTimezone, "Asia/Omsk"}, // регистр аргумента сохраняется
-	}
-	for _, c := range cases {
-		t.Run(c.text, func(t *testing.T) {
-			in, ok := MatchIntent(c.text)
-			require.True(t, ok)
-			assert.Equal(t, c.kind, in.Kind)
-			assert.Equal(t, c.arg, in.Arg)
-		})
-	}
-	for _, text := range []string{"кофе 350", "пояс 500", "панелька 300", "покажи траты"} {
-		_, ok := MatchIntent(text)
-		assert.False(t, ok, text)
-	}
-}
 
 func TestRateLimiter(t *testing.T) {
 	l := NewRateLimiter(3, time.Minute)

@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"expense-bot/internal/domain"
-	"expense-bot/internal/pipeline"
+	"expense-bot/internal/nlp/textnorm"
 	"expense-bot/internal/service"
 	"expense-bot/internal/storage/postgres"
 	"expense-bot/internal/timezone"
@@ -96,7 +96,7 @@ func (f *FSM) Start(ctx context.Context, u domain.User, payload string) (Reply, 
 
 // HandleText - текст пользователя, который ещё не завершил регистрацию.
 func (f *FSM) HandleText(ctx context.Context, u domain.User, text string) (Reply, error) {
-	norm := strings.TrimRight(pipeline.Normalize(text), ".!")
+	norm := strings.TrimRight(textnorm.Normalize(text), ".!")
 	switch u.State {
 	case domain.StateAwaitingFamilyName:
 		if isSkip(norm) {

@@ -1,4 +1,4 @@
-package pipeline
+package textnorm
 
 import (
 	"strings"
@@ -7,17 +7,19 @@ import (
 	"github.com/kljensen/snowball/russian"
 )
 
-type tokenKind int
+// Kind - вид токена.
+type Kind int
 
 const (
-	tokWord   tokenKind = iota // буквы и дефисы: «шаурма», «яндекс-такси»
-	tokNumber                  // цифры с внутренними . , : — «1200», «1.5», «12.10», «18:30»
-	tokSymbol                  // «₽», «$»
+	KindWord   Kind = iota // буквы и дефисы: «шаурма», «яндекс-такси»
+	KindNumber             // цифры с внутренними . , : — «1200», «1.5», «12.10», «18:30»
+	KindSymbol             // «₽», «$»
 )
 
-type token struct {
-	text string
-	kind tokenKind
+// Token - слово, число или символ валюты из нормализованного текста.
+type Token struct {
+	Text string
+	Kind Kind
 }
 
 // Normalize приводит текст к виду для правил: нижний регистр, ё -> е, разные тире -> "-",
@@ -30,17 +32,17 @@ func Normalize(s string) string {
 
 // tokenize режет нормализованный текст на слова, числа и символы валют.
 // Склеенные формы разделяются по смене класса: «1200р» -> «1200», «р»; «1.5к» -> «1.5», «к».
-func tokenize(s string) []token {
+func Tokenize(s string) []Token {
 	var (
-		toks []token
+		toks []Token
 		cur  []rune
-		kind tokenKind
+		kind Kind
 	)
 	flush := func() {
 		if len(cur) > 0 {
 			t := strings.Trim(string(cur), ".,:-")
 			if t != "" {
-				toks = append(toks, token{text: t, kind: kind})
+				toks = append(toks, Token{Text: t, Kind: kind})
 			}
 			cur = cur[:0]
 		}
@@ -53,24 +55,24 @@ func tokenize(s string) []token {
 		}
 		switch {
 		case unicode.IsLetter(r):
-			if kind != tokWord {
+			if kind != KindWord {
 				flush()
-				kind = tokWord
+				kind = KindWord
 			}
 			cur = append(cur, r)
-		case r == '-' && kind == tokWord && len(cur) > 0 && unicode.IsLetter(next):
+		case r == '-' && kind == KindWord && len(cur) > 0 && unicode.IsLetter(next):
 			cur = append(cur, r)
 		case unicode.IsDigit(r):
-			if kind != tokNumber {
+			if kind != KindNumber {
 				flush()
-				kind = tokNumber
+				kind = KindNumber
 			}
 			cur = append(cur, r)
-		case (r == '.' || r == ',' || r == ':') && kind == tokNumber && len(cur) > 0 && unicode.IsDigit(next):
+		case (r == '.' || r == ',' || r == ':') && kind == KindNumber && len(cur) > 0 && unicode.IsDigit(next):
 			cur = append(cur, r)
 		case r == '₽' || r == '$' || r == '€':
 			flush()
-			toks = append(toks, token{text: string(r), kind: tokSymbol})
+			toks = append(toks, Token{Text: string(r), Kind: KindSymbol})
 		default:
 			flush()
 		}
@@ -80,9 +82,10 @@ func tokenize(s string) []token {
 }
 
 // Stem - основа слова (стеммер Портера для русского), для сравнения словоформ:
-// «ресторане», «ресторанов», «ресторан» -> «ресторан».
+// «продукты», «продуктов», «продуктами» -> «продукт». Стеммер бывает несимметричен
+// («ресторан» -> «рестора», «ресторане» -> «ресторан»); словарь это учитывает (lexicon).
 func Stem(word string) string {
-	if !isCyrillic(word) {
+	if !IsCyrillic(word) {
 		return word
 	}
 	parts := strings.Split(word, "-")
@@ -93,7 +96,7 @@ func Stem(word string) string {
 }
 
 // stemPhrase - основы слов фразы через пробел: ключ словаря для многословных синонимов.
-func stemPhrase(words []string) string {
+func StemPhrase(words []string) string {
 	out := make([]string, len(words))
 	for i, w := range words {
 		out[i] = Stem(w)
@@ -101,11 +104,22 @@ func stemPhrase(words []string) string {
 	return strings.Join(out, " ")
 }
 
-func isCyrillic(s string) bool {
+func IsCyrillic(s string) bool {
 	for _, r := range s {
 		if unicode.Is(unicode.Cyrillic, r) {
 			return true
 		}
 	}
 	return false
+}
+
+// Words - только словесные токены текста.
+func Words(s string) []string {
+	var out []string
+	for _, t := range Tokenize(s) {
+		if t.Kind == KindWord {
+			out = append(out, t.Text)
+		}
+	}
+	return out
 }
