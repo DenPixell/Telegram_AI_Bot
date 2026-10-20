@@ -107,7 +107,7 @@ flowchart LR
     TG[Telegram] <-->|long polling| BOT[telegram adapter]
     subgraph GO[Go backend: один процесс]
         BOT --> ONB[onboarding FSM]
-        BOT --> PIPE[pipeline: лимиты, роутер, фильтр]
+        BOT --> PIPE[limits + nlp: лимиты, роутер, фильтр]
         PIPE --> AG[agent: tools]
         AG --> LLM[llm.Client + fallback + circuit breaker]
         AG --> SVC[service: families, expenses, tz, invites]
@@ -146,11 +146,12 @@ flowchart TD
 ### 3.3 Слои
 
 - **domain**: сущности, ошибки, без зависимостей.
-- **service**: бизнес-правила. Все методы принимают `Actor{UserID, FamilyID, Role}` и проверяют права. Единственная точка мутаций.
+- **service**: бизнес-правила. Все методы принимают `Actor{UserID, FamilyID, Role}` и проверяют права. Единственная точка мутаций. Хранилище видит только через интерфейсы, которые объявляет сам (`store.go`); транзакция передаётся через `context`, поэтому от PostgreSQL сервис не зависит.
 - **storage/postgres**: репозиторий. Все запросы содержат `family_id` и, где нужно, `user_id`.
 - **httpapi**: DTO, валидация, сессии, CSRF, rate limit, маппинг ошибок в коды.
 - **agent**: промпт, схемы инструментов, диспетчер, рендер ответов.
-- **pipeline**: лимиты, роутер служебных намерений, фильтр, словарь синонимов.
+- **limits**: rate limit на пользователя и суточные квоты LLM.
+- **nlp**: разбор текста до LLM, по пакету на задачу: `textnorm` (нормализация, основы слов), `parse` (суммы и даты), `lexicon` (словарь синонимов, действия, стоп-слова), `thesaurus` (Викисловарь), `category` (гибридная категория), `intent` (служебные намерения), `filter` (решение по сообщению).
 - **onboarding**: конечный автомат (FSM) шагов регистрации.
 - **timezone**: определение и разбор часовых поясов.
 - **llm**: интерфейс, клиент, ретраи, fallback, circuit breaker, учёт токенов.
@@ -164,12 +165,13 @@ expense-bot/
 ├── internal/
 │   ├── config/
 │   ├── domain/
-│   ├── service/            # families.go, invites.go, expenses.go, members.go
+│   ├── service/            # families.go, invites.go, expenses.go, members.go, store.go (интерфейсы)
 │   ├── storage/postgres/   # repo + migrations/*.sql (embed)
 │   ├── httpapi/            # router, handlers, auth, csrf, dto
 │   ├── telegram/           # bot.go, sender.go (лимитер), handler.go
 │   ├── onboarding/         # fsm.go
-│   ├── pipeline/           # limits.go, intents.go, filter.go, synonyms.go
+│   ├── limits/             # rate limit, квоты LLM
+│   ├── nlp/                # textnorm, parse, lexicon, thesaurus, category, intent, filter
 │   ├── agent/              # agent.go, tools.go, prompt.go, render.go, history.go
 │   ├── timezone/           # resolve.go (города, смещения, IANA, геолокация)
 │   └── llm/                # client.go, openai.go, fallback.go, breaker.go, fake.go
@@ -289,13 +291,21 @@ CREATE TABLE invites (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Справочник категорий (миграция 00004): новая категория - строка, а не изменение схемы.
+CREATE TABLE categories (
+    name        TEXT PRIMARY KEY,               -- 'еда', 'транспорт', ...
+    title       TEXT    NOT NULL,               -- подпись в панели
+    emoji       TEXT    NOT NULL DEFAULT '',
+    position    INT     NOT NULL,               -- порядок отображения
+    is_fallback BOOLEAN NOT NULL DEFAULT false  -- 'другое': ровно одна (частичный уникальный индекс)
+);
+
 CREATE TABLE expenses (
     id           BIGSERIAL PRIMARY KEY,
     family_id    BIGINT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
     user_id      BIGINT NOT NULL REFERENCES users(telegram_id),   -- Telegram ID владельца траты
     amount_minor BIGINT NOT NULL CHECK (amount_minor > 0 AND amount_minor <= 100000000000),
-    category     TEXT   NOT NULL CHECK (category IN
-                 ('еда','транспорт','жильё','развлечения','здоровье','покупки','другое')),
+    category     TEXT   NOT NULL REFERENCES categories(name) ON UPDATE CASCADE, -- справочник, см. ниже
     spent_at     DATE   NOT NULL,                                 -- локальная дата пользователя
     title        TEXT   NOT NULL DEFAULT '',                      -- канон из словаря: «ресторан»
     comment      TEXT   NOT NULL DEFAULT '' CHECK (char_length(comment) <= 200), -- как написал пользователь
@@ -761,7 +771,7 @@ HTTP_ADDR=:8080
 | 2. Семьи и приглашения | Сервис семей, генерация кодов, лимиты попыток, роли, тесты конкурентности | Логика без Telegram | 4-5 ч |
 | 3. Часовые пояса | Разбор города, смещения, IANA, геолокации, расчёт периодов | Пакет `timezone` с тестами | 2-3 ч |
 | 4. REST API и авторизация | Хендлеры, magic link, сессии, CSRF, оптимистичная блокировка, `openapi.yaml` | Защищённый API | 5-6 ч |
-| 5. Словарь и фильтр | `synonyms.yaml`, разбор сумм, фильтр правил, лимиты, fuzz-тесты | Пакет `pipeline` | 4-5 ч |
+| 5. Словарь и фильтр | `synonyms.yaml`, разбор сумм, фильтр правил, лимиты, fuzz-тесты | Пакет `pipeline` (позже разделён на `nlp/*` и `limits`) | 4-5 ч |
 | 6. LLM-слой | Интерфейс, клиент, ретраи, fallback, breaker, очередь, учёт токенов, fake | `llm.Client` | 3-4 ч |
 | 7. Агент | Tools, промпт, рендер ответов, уточнения, сценарии 9.4 | Агент проходит тесты на fake, затем на реальной модели | 6-8 ч |
 | 8. Telegram и онбординг | Long polling, FSM, deep link, whitelist, дедуп, исходящий лимитер, graceful shutdown | Бот работает целиком | 4-5 ч |

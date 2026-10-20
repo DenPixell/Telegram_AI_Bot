@@ -83,7 +83,7 @@ flowchart LR
     TG[Telegram] <-->|long polling| BOT[telegram]
     subgraph APP[app: один Go-процесс]
         BOT --> ONB[onboarding FSM]
-        BOT --> PIPE[pipeline: лимиты, намерения, фильтр, словарь]
+        BOT --> PIPE[limits + nlp: лимиты, намерения, фильтр, словарь]
         PIPE --> AG[agent: tools]
         AG --> LLM[llm: retry, breaker, fallback, квоты]
         AG --> SVC[service]
@@ -124,6 +124,19 @@ flowchart LR
 дата в часовом поясе пользователя (город, «МСК+2», «UTC+5» или геолокация). Каждый запрос к данным фильтруется
 по `family_id`, а для бота ещё и по `user_id`. Параллельные правки из бота и панели разрешаются оптимистичной
 блокировкой: при конфликте панель получает 409 и показывает понятное сообщение.
+
+Слои: `service` (бизнес-правила) объявляет нужные ему интерфейсы хранилища и не знает о PostgreSQL, реализацию
+подставляет `cmd/server`. Разбор текста разделён по задачам: `nlp/textnorm`, `nlp/parse` (суммы и даты),
+`nlp/lexicon` (словарь), `nlp/category`, `nlp/thesaurus`, `nlp/intent`, `nlp/filter`; лимиты — `limits`.
+
+Категории — справочник в таблице `categories`, траты ссылаются на него внешним ключом. Новая категория:
+
+```sql
+INSERT INTO categories (name, title, emoji, position) VALUES ('питомцы', 'Питомцы', '🐾', 8);
+```
+
+После перезапуска приложения она появится в боте (в схеме инструментов LLM) и в панели. Слова для неё можно
+добавить в `config/synonyms.yaml`.
 
 ## Веб-панель
 
@@ -236,14 +249,15 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)): линтер, тес�
 
 Логи — JSON (`log/slog`) с `request_id`; тексты сообщений и токены в логи не пишутся.
 
-Тесты (testify, table-driven; логика pipeline, llm и timezone покрыта на 85–95%):
+Тесты (testify, table-driven; разбор текста `internal/nlp`, `llm` и `timezone` покрыты на 79–100%):
 
 - unit: суммы, даты, фильтр (сценарии 9.4), словарь, категории с fake-тезаурусом, часовые пояса, периоды,
+  правила трат на хранилище в памяти (без БД),
   LLM-клиент на mock-сервере (ретраи, breaker, fallback, квоты), Telegram-утилиты;
 - интеграционные на PostgreSQL через testcontainers (`internal/testutil/pgtest`): изоляция пользователей и
   семей, конкурентные приглашения, оптимистичная блокировка, сервис семей, онбординг, вход в панель, REST API
   (CSRF, Origin, IDOR, 409, метрики), агент на fake-LLM;
-- fuzz: `go test ./internal/pipeline -fuzz FuzzAnalyze -fuzztime 30s`.
+- fuzz: `go test ./internal/nlp/filter -fuzz FuzzAnalyze -fuzztime 30s` (или `make fuzz`).
 
 Без Docker интеграционные тесты пропускаются; можно указать готовую БД: `TEST_DB_DSN=postgres://...`.
 `go test -short ./...` — только unit-тесты.
