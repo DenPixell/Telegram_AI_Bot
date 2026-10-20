@@ -7,7 +7,7 @@ Telegram-бот, который понимает траты обычными с�
 
 - Спецификация и план: [docs/architecture.md](docs/architecture.md)
 - Контракт REST API: [api/openapi.yaml](api/openapi.yaml)
-- Правила для ИИ-ассистентов и структура кода: [AGENTS.md](AGENTS.md)
+- Правила для ИИ-ассистентов и структура кода: [AGENTS.md](AGENTS.md) 
 
 ## Запуск за 5 минут
 
@@ -55,34 +55,6 @@ Telegram-бот, который понимает траты обычными с�
 Для `prod` в `.env` нужны `DOMAIN=bot.example.com` и `PUBLIC_URL=https://bot.example.com`, DNS-запись на сервер
 и открытые порты 80/443. Восстановление бэкапа:
 `gunzip -c backups/expenses-<дата>.sql.gz | docker compose exec -T db psql -U app -d expenses`.
-
-## Деплой на Render (бесплатно)
-
-В репозитории есть [render.yaml](render.yaml): Render по нему сам создаёт сервис и БД. Всё работает в одном
-контейнере ([deploy/single.Dockerfile](deploy/single.Dockerfile)): API, бот и панель.
-
-Особенности бесплатного тарифа Render, под которые настроен деплой:
-
-- **Сервис засыпает через 15 минут без входящих запросов.** Поэтому бот работает через webhook
-  (`TELEGRAM_MODE=webhook`): сообщение из Telegram будит сервис. Первое сообщение после простоя обрабатывается
-  примерно через минуту — Telegram сам повторяет доставку.
-- **Бесплатная БД Render удаляется через 30 дней** (плюс 14 дней на апгрейд). Для постоянной работы укажите в
-  `DB_DSN` внешний бесплатный Postgres, например [Neon](https://neon.tech), со `?sslmode=require`.
-- 750 бесплатных часов в месяц на аккаунт — одному сервису хватает.
-
-Шаги:
-
-1. Если уже создан сервис с runtime Go, удалите его: runtime сервиса нельзя сменить на Docker.
-2. Render → **New → Blueprint** → выберите репозиторий и ветку.
-3. Введите секреты, которые спросит Render: `TELEGRAM_BOT_TOKEN`, `LLM_API_KEY`, `LLM_FALLBACK_API_KEY` и
-   `ADMIN_TELEGRAM_IDS` (ваш Telegram ID — его покажет @userinfobot; нужен для рассылок).
-4. Дождитесь деплоя и проверьте `https://<сервис>.onrender.com/healthz`. Бот сам зарегистрирует webhook на этот адрес.
-5. **Остановите локальный бот** (`docker compose stop app`): webhook и long polling с одним токеном не работают
-   одновременно. Если позже запустить локально в режиме polling, сервер не станет снимать чужой webhook и
-   остановится с понятной ошибкой.
-6. Напишите боту `панель`: ссылка будет вести на адрес Render (`PUBLIC_URL` берётся из `RENDER_EXTERNAL_URL`).
-
-`/metrics` в этом режиме закрыт токеном: `Authorization: Bearer <METRICS_TOKEN из дашборда>`.
 
 ## Рассылка всем пользователям
 
@@ -278,8 +250,8 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)): линтер, тес�
 
 ## Как использовалась ИИ-разработка
 
-Проект написан с ИИ-ассистентом (Claude Code) по схеме «сначала спецификация»:
-[docs/architecture.md](docs/architecture.md) и [AGENTS.md](AGENTS.md) с правилами давались ассистенту как
+Проект написан с ИИ-ассистентом (Claude Code) по схеме ручной код + спецификация:
+[docs/architecture.md](docs/architecture.md) и [AGENTS.md](AGENTS.md) давались ассистенту как
 контекст, работа шла этапами плана, каждый этап — отдельный коммит и проверка на живых данных.
 
 Что сработало:
