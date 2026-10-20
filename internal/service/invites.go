@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"expense-bot/internal/domain"
-	"expense-bot/internal/storage/postgres"
 )
 
 // Коды приглашений: Crockford base32 (без I, L, O, U), 10 символов = 50 бит энтропии.
@@ -79,7 +78,7 @@ func (f *Families) CreateInvite(ctx context.Context, a domain.Actor) (domain.Inv
 	if err := requireOwner(a); err != nil {
 		return domain.Invite{}, fmt.Errorf("create invite: %w", err)
 	}
-	inv, err := f.createInvite(ctx, f.store, a.FamilyID, a.UserID)
+	inv, err := f.createInvite(ctx, a.FamilyID, a.UserID)
 	if err != nil {
 		return domain.Invite{}, fmt.Errorf("create invite: %w", err)
 	}
@@ -88,15 +87,15 @@ func (f *Families) CreateInvite(ctx context.Context, a domain.Actor) (domain.Inv
 
 // createInvite генерирует код и повторяет при коллизии. Внутри транзакции каждая попытка
 // идёт в своём savepoint, чтобы ошибка уникальности не прерывала всю транзакцию.
-func (f *Families) createInvite(ctx context.Context, s *postgres.Store, familyID, createdBy int64) (domain.Invite, error) {
+func (f *Families) createInvite(ctx context.Context, familyID, createdBy int64) (domain.Invite, error) {
 	for range maxCodeAttempts {
 		code, err := NewInviteCode()
 		if err != nil {
 			return domain.Invite{}, fmt.Errorf("generate invite code: %w", err)
 		}
 		var inv domain.Invite
-		err = s.WithTx(ctx, func(tx *postgres.Store) error {
-			inv, err = tx.CreateInvite(ctx, domain.Invite{
+		err = f.store.WithTx(ctx, func(ctx context.Context) error {
+			inv, err = f.store.CreateInvite(ctx, domain.Invite{
 				FamilyID:  familyID,
 				Code:      code,
 				CreatedBy: createdBy,
@@ -105,7 +104,7 @@ func (f *Families) createInvite(ctx context.Context, s *postgres.Store, familyID
 			})
 			return err
 		})
-		if errors.Is(err, postgres.ErrDuplicateInviteCode) {
+		if errors.Is(err, domain.ErrDuplicateInviteCode) {
 			continue
 		}
 		return inv, err

@@ -19,7 +19,7 @@ func scanMember(row pgx.Row) (domain.Member, error) {
 // AddMember добавляет пользователя в семью.
 // ErrInFamily - пользователь уже в семье, ErrConflict - у семьи уже есть владелец.
 func (s *Store) AddMember(ctx context.Context, m domain.Member) (domain.Member, error) {
-	res, err := scanMember(s.q.QueryRow(ctx, `
+	res, err := scanMember(s.conn(ctx).QueryRow(ctx, `
 		INSERT INTO family_members AS m (user_id, family_id, role, relation)
 		VALUES ($1, $2, $3, $4)
 		RETURNING `+memberColumns,
@@ -30,14 +30,14 @@ func (s *Store) AddMember(ctx context.Context, m domain.Member) (domain.Member, 
 // GetMembership возвращает членство пользователя (из него строится domain.Actor).
 // ErrNotFound означает, что пользователь не состоит в семье.
 func (s *Store) GetMembership(ctx context.Context, userID int64) (domain.Member, error) {
-	m, err := scanMember(s.q.QueryRow(ctx,
+	m, err := scanMember(s.conn(ctx).QueryRow(ctx,
 		`SELECT `+memberColumns+` FROM family_members m WHERE m.user_id = $1`, userID))
 	return m, mapErr("get membership", err)
 }
 
 // ListMembers возвращает участников семьи: владелец первым, затем по дате вступления.
 func (s *Store) ListMembers(ctx context.Context, familyID int64) ([]domain.MemberProfile, error) {
-	rows, err := s.q.Query(ctx, `
+	rows, err := s.conn(ctx).Query(ctx, `
 		SELECT `+memberColumns+`, u.display_name, u.username
 		FROM family_members m
 		JOIN users u ON u.telegram_id = m.user_id
@@ -56,7 +56,7 @@ func (s *Store) ListMembers(ctx context.Context, familyID int64) ([]domain.Membe
 
 func (s *Store) CountMembers(ctx context.Context, familyID int64) (int, error) {
 	var n int
-	err := s.q.QueryRow(ctx, `SELECT count(*) FROM family_members WHERE family_id = $1`, familyID).Scan(&n)
+	err := s.conn(ctx).QueryRow(ctx, `SELECT count(*) FROM family_members WHERE family_id = $1`, familyID).Scan(&n)
 	return n, mapErr("count members", err)
 }
 
@@ -82,7 +82,7 @@ func (s *Store) RemoveMember(ctx context.Context, familyID, userID int64) error 
 
 // FamilyOwner возвращает владельца семьи (режим панели none: действия от его имени).
 func (s *Store) FamilyOwner(ctx context.Context, familyID int64) (domain.Member, error) {
-	m, err := scanMember(s.q.QueryRow(ctx,
+	m, err := scanMember(s.conn(ctx).QueryRow(ctx,
 		`SELECT `+memberColumns+` FROM family_members m WHERE m.family_id = $1 AND m.role = 'owner'`, familyID))
 	return m, mapErr("family owner", err)
 }

@@ -26,7 +26,7 @@ func scanUser(row pgx.Row) (domain.User, error) {
 // UpsertUser создаёт пользователя при первом сообщении или обновляет имя и username.
 // Состояние онбординга и пояс не трогает. Возвращает актуальную запись.
 func (s *Store) UpsertUser(ctx context.Context, telegramID int64, displayName, username string) (domain.User, error) {
-	u, err := scanUser(s.q.QueryRow(ctx, `
+	u, err := scanUser(s.conn(ctx).QueryRow(ctx, `
 		INSERT INTO users (telegram_id, display_name, username)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (telegram_id) DO UPDATE
@@ -37,7 +37,7 @@ func (s *Store) UpsertUser(ctx context.Context, telegramID int64, displayName, u
 }
 
 func (s *Store) GetUser(ctx context.Context, telegramID int64) (domain.User, error) {
-	u, err := scanUser(s.q.QueryRow(ctx,
+	u, err := scanUser(s.conn(ctx).QueryRow(ctx,
 		`SELECT `+userColumns+` FROM users WHERE telegram_id = $1`, telegramID))
 	return u, mapErr("get user", err)
 }
@@ -65,7 +65,7 @@ func (s *Store) SetUserActive(ctx context.Context, telegramID int64, active bool
 
 // execOne выполняет запрос, который обязан затронуть ровно одну строку, иначе ErrNotFound.
 func (s *Store) execOne(ctx context.Context, op, sql string, args ...any) error {
-	tag, err := s.q.Exec(ctx, sql, args...)
+	tag, err := s.conn(ctx).Exec(ctx, sql, args...)
 	if err != nil {
 		return mapErr(op, err)
 	}

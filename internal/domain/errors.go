@@ -12,7 +12,9 @@ var (
 	ErrFamilyFull  = errors.New("family member limit reached")
 	// ErrInviteInvalid - одна ошибка для неверного, истёкшего и отозванного кода,
 	// чтобы не давать информации перебору.
-	ErrInviteInvalid   = errors.New("invite code not found or no longer valid")
-	ErrTooManyAttempts = errors.New("too many attempts")
-	ErrOwnerMustStay   = errors.New("owner cannot leave without transferring ownership")
+	ErrInviteInvalid = errors.New("invite code not found or no longer valid")
+	// ErrDuplicateInviteCode - коллизия кода приглашения: генерируем новый код и повторяем.
+	ErrDuplicateInviteCode = errors.New("duplicate invite code")
+	ErrTooManyAttempts     = errors.New("too many attempts")
+	ErrOwnerMustStay       = errors.New("owner cannot leave without transferring ownership")
 )

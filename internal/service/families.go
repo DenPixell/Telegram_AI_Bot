@@ -9,7 +9,6 @@ import (
 	"unicode/utf8"
 
 	"expense-bot/internal/domain"
-	"expense-bot/internal/storage/postgres"
 )
 
 const (
@@ -26,13 +25,13 @@ type FamiliesConfig struct {
 
 // Families - семьи, участники, роли и приглашения.
 type Families struct {
-	store    *postgres.Store
+	store    FamilyStore
 	cfg      FamiliesConfig
 	attempts *attemptLimiter
 	now      func() time.Time
 }
 
-func NewFamilies(store *postgres.Store, cfg FamiliesConfig) *Families {
+func NewFamilies(store FamilyStore, cfg FamiliesConfig) *Families {
 	return &Families{
 		store:    store,
 		cfg:      cfg,
@@ -64,16 +63,16 @@ func (f *Families) CreateFamily(ctx context.Context, userID int64, name string) 
 		fam domain.Family
 		inv domain.Invite
 	)
-	err = f.store.WithTx(ctx, func(tx *postgres.Store) error {
-		if err := tx.LockUser(ctx, userID); err != nil {
+	err = f.store.WithTx(ctx, func(ctx context.Context) error {
+		if err := f.store.LockUser(ctx, userID); err != nil {
 			return err
 		}
-		if _, err := tx.GetMembership(ctx, userID); err == nil {
+		if _, err := f.store.GetMembership(ctx, userID); err == nil {
 			return domain.ErrInFamily
 		} else if !errors.Is(err, domain.ErrNotFound) {
 			return err
 		}
-		u, err := tx.GetUser(ctx, userID)
+		u, err := f.store.GetUser(ctx, userID)
 		if err != nil {
 			return err
 		}
@@ -81,13 +80,13 @@ func (f *Families) CreateFamily(ctx context.Context, userID int64, name string) 
 		if u.Timezone != "" {
 			tz = u.Timezone
 		}
-		if fam, err = tx.CreateFamily(ctx, name, tz); err != nil {
+		if fam, err = f.store.CreateFamily(ctx, name, tz); err != nil {
 			return err
 		}
-		if _, err = tx.AddMember(ctx, domain.Member{UserID: userID, FamilyID: fam.ID, Role: domain.RoleOwner}); err != nil {
+		if _, err = f.store.AddMember(ctx, domain.Member{UserID: userID, FamilyID: fam.ID, Role: domain.RoleOwner}); err != nil {
 			return err
 		}
-		inv, err = f.createInvite(ctx, tx, fam.ID, userID)
+		inv, err = f.createInvite(ctx, fam.ID, userID)
 		return err
 	})
 	if err != nil {
@@ -111,31 +110,31 @@ func (f *Families) JoinByCode(ctx context.Context, userID int64, rawCode string)
 	}
 
 	var fam domain.Family
-	err := f.store.WithTx(ctx, func(tx *postgres.Store) error {
-		if err := tx.LockUser(ctx, userID); err != nil {
+	err := f.store.WithTx(ctx, func(ctx context.Context) error {
+		if err := f.store.LockUser(ctx, userID); err != nil {
 			return err
 		}
 		// Проверяем до траты использования кода: состоящему в семье нужно сначала выйти.
-		if _, err := tx.GetMembership(ctx, userID); err == nil {
+		if _, err := f.store.GetMembership(ctx, userID); err == nil {
 			return domain.ErrInFamily
 		} else if !errors.Is(err, domain.ErrNotFound) {
 			return err
 		}
-		inv, err := tx.UseInvite(ctx, code)
+		inv, err := f.store.UseInvite(ctx, code)
 		if err != nil {
 			return err
 		}
-		n, err := tx.CountMembers(ctx, inv.FamilyID)
+		n, err := f.store.CountMembers(ctx, inv.FamilyID)
 		if err != nil {
 			return err
 		}
 		if n >= f.cfg.MaxMembers {
 			return domain.ErrFamilyFull // откат вернёт использование приглашения
 		}
-		if _, err := tx.AddMember(ctx, domain.Member{UserID: userID, FamilyID: inv.FamilyID, Role: domain.RoleMember}); err != nil {
+		if _, err := f.store.AddMember(ctx, domain.Member{UserID: userID, FamilyID: inv.FamilyID, Role: domain.RoleMember}); err != nil {
 			return err
 		}
-		fam, err = tx.GetFamily(ctx, inv.FamilyID)
+		fam, err = f.store.GetFamily(ctx, inv.FamilyID)
 		return err
 	})
 	if errors.Is(err, domain.ErrInviteInvalid) {
@@ -180,12 +179,12 @@ func (f *Families) UpdateFamily(ctx context.Context, a domain.Actor, name, tz st
 // Владелец выйти не может, пока в семье есть другие (ErrOwnerMustStay); последний участник
 // удаляет семью целиком вместе с тратами.
 func (f *Families) Leave(ctx context.Context, a domain.Actor) (familyDeleted bool, err error) {
-	err = f.store.WithTx(ctx, func(tx *postgres.Store) error {
-		if err := tx.LockUser(ctx, a.UserID); err != nil {
+	err = f.store.WithTx(ctx, func(ctx context.Context) error {
+		if err := f.store.LockUser(ctx, a.UserID); err != nil {
 			return err
 		}
 		// Роль перечитываем под блокировкой: Actor мог устареть (передача владения).
-		m, err := tx.GetMembership(ctx, a.UserID)
+		m, err := f.store.GetMembership(ctx, a.UserID)
 		if errors.Is(err, domain.ErrNotFound) || (err == nil && m.FamilyID != a.FamilyID) {
 			return domain.ErrNotInFamily
 		}
@@ -193,7 +192,7 @@ func (f *Families) Leave(ctx context.Context, a domain.Actor) (familyDeleted boo
 			return err
 		}
 		if m.Role == domain.RoleOwner {
-			n, err := tx.CountMembers(ctx, a.FamilyID)
+			n, err := f.store.CountMembers(ctx, a.FamilyID)
 			if err != nil {
 				return err
 			}
@@ -201,13 +200,13 @@ func (f *Families) Leave(ctx context.Context, a domain.Actor) (familyDeleted boo
 				return domain.ErrOwnerMustStay
 			}
 			familyDeleted = true
-			if err := tx.DeleteFamily(ctx, a.FamilyID); err != nil {
+			if err := f.store.DeleteFamily(ctx, a.FamilyID); err != nil {
 				return err
 			}
-		} else if err := tx.RemoveMember(ctx, a.FamilyID, a.UserID); err != nil {
+		} else if err := f.store.RemoveMember(ctx, a.FamilyID, a.UserID); err != nil {
 			return err
 		}
-		return detachUser(ctx, tx, a.UserID)
+		return f.detachUser(ctx, a.UserID)
 	})
 	if err != nil {
 		return false, fmt.Errorf("leave family: %w", err)
@@ -217,11 +216,11 @@ func (f *Families) Leave(ctx context.Context, a domain.Actor) (familyDeleted boo
 
 // detachUser выполняется, когда пользователь перестал быть участником семьи:
 // сессии панели инвалидируются, онбординг возвращается на выбор семьи.
-func detachUser(ctx context.Context, tx *postgres.Store, userID int64) error {
-	if err := tx.DeleteUserSessions(ctx, userID); err != nil {
+func (f *Families) detachUser(ctx context.Context, userID int64) error {
+	if err := f.store.DeleteUserSessions(ctx, userID); err != nil {
 		return err
 	}
-	return tx.SetUserState(ctx, userID, domain.StateAwaitingChoice, nil)
+	return f.store.SetUserState(ctx, userID, domain.StateAwaitingChoice, nil)
 }
 
 func requireOwner(a domain.Actor) error {
@@ -244,29 +243,29 @@ func cleanText(s string, maxLen int, field string) (string, error) {
 // должен сначала передать владение (ErrOwnerMustStay); последний участник удаляет семью
 // целиком. Возвращает true, если семья удалена.
 func (f *Families) DeleteMyData(ctx context.Context, userID int64) (familyDeleted bool, err error) {
-	err = f.store.WithTx(ctx, func(tx *postgres.Store) error {
-		if err := tx.LockUser(ctx, userID); err != nil {
+	err = f.store.WithTx(ctx, func(ctx context.Context) error {
+		if err := f.store.LockUser(ctx, userID); err != nil {
 			return err
 		}
-		m, err := tx.GetMembership(ctx, userID)
+		m, err := f.store.GetMembership(ctx, userID)
 		switch {
 		case errors.Is(err, domain.ErrNotFound):
 		case err != nil:
 			return err
 		case m.Role == domain.RoleOwner:
-			n, err := tx.CountMembers(ctx, m.FamilyID)
+			n, err := f.store.CountMembers(ctx, m.FamilyID)
 			if err != nil {
 				return err
 			}
 			if n > 1 {
 				return domain.ErrOwnerMustStay
 			}
-			if err := tx.DeleteFamily(ctx, m.FamilyID); err != nil {
+			if err := f.store.DeleteFamily(ctx, m.FamilyID); err != nil {
 				return err
 			}
 			familyDeleted = true
 		}
-		return tx.DeleteUserData(ctx, userID)
+		return f.store.DeleteUserData(ctx, userID)
 	})
 	if err != nil {
 		return false, fmt.Errorf("delete my data: %w", err)

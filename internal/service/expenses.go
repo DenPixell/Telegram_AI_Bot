@@ -8,7 +8,6 @@ import (
 	"unicode/utf8"
 
 	"expense-bot/internal/domain"
-	"expense-bot/internal/storage/postgres"
 	"expense-bot/internal/timezone"
 )
 
@@ -22,12 +21,12 @@ const (
 // Expenses - траты. Бот работает в UserScope (только свои), панель владельца - в FamilyScope.
 // Доработка для бота (разрешение «последней», синонимы) - этап 7.
 type Expenses struct {
-	store *postgres.Store
+	store ExpenseStore
 	appTZ string
 	now   func() time.Time
 }
 
-func NewExpenses(store *postgres.Store, appTZ string) *Expenses {
+func NewExpenses(store ExpenseStore, appTZ string) *Expenses {
 	return &Expenses{store: store, appTZ: appTZ, now: time.Now}
 }
 

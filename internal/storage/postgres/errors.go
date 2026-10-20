@@ -10,9 +10,6 @@ import (
 	"expense-bot/internal/domain"
 )
 
-// ErrDuplicateInviteCode - коллизия кода приглашения. Вызывающий генерирует новый код и повторяет.
-var ErrDuplicateInviteCode = errors.New("duplicate invite code")
-
 // Коды ошибок PostgreSQL, см. https://www.postgresql.org/docs/16/errcodes-appendix.html
 const (
 	pgUniqueViolation     = "23505"
@@ -43,7 +40,7 @@ func mapErr(op string, err error) error {
 			case constraintMembersPK:
 				return fmt.Errorf("%s: %w", op, domain.ErrInFamily)
 			case constraintInviteCode:
-				return fmt.Errorf("%s: %w", op, ErrDuplicateInviteCode)
+				return fmt.Errorf("%s: %w", op, domain.ErrDuplicateInviteCode)
 			case constraintFamilyOwner:
 				return fmt.Errorf("%s: family already has an owner: %w", op, domain.ErrConflict)
 			}

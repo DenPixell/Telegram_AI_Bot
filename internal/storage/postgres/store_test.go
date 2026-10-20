@@ -111,8 +111,8 @@ func TestMembershipConstraints(t *testing.T) {
 
 func TestTransactions(t *testing.T) {
 	s, pool := pgtest.New(t)
-	err := s.WithTx(ctx, func(tx *postgres.Store) error {
-		_, err := tx.CreateFamily(ctx, "rollback", "UTC")
+	err := s.WithTx(ctx, func(ctx context.Context) error {
+		_, err := s.CreateFamily(ctx, "rollback", "UTC")
 		require.NoError(t, err)
 		return errors.New("boom")
 	})
@@ -122,7 +122,28 @@ func TestTransactions(t *testing.T) {
 	assert.Zero(t, n, "откат транзакции")
 
 	assert.Error(t, s.LockUser(ctx, 1), "блокировка вне транзакции бессмысленна")
-	assert.NoError(t, s.WithTx(ctx, func(tx *postgres.Store) error { return tx.LockUser(ctx, 1) }))
+	assert.NoError(t, s.WithTx(ctx, func(ctx context.Context) error { return s.LockUser(ctx, 1) }))
+
+	// Вложенная транзакция - savepoint: её откат не трогает внешнюю.
+	require.NoError(t, s.WithTx(ctx, func(ctx context.Context) error {
+		if _, err := s.CreateFamily(ctx, "outer", "UTC"); err != nil {
+			return err
+		}
+		_ = s.WithTx(ctx, func(ctx context.Context) error {
+			_, _ = s.CreateFamily(ctx, "inner", "UTC")
+			return errors.New("inner boom")
+		})
+		return nil
+	}))
+	var names []string
+	rows, err := pool.Query(ctx, `SELECT name FROM families ORDER BY id`)
+	require.NoError(t, err)
+	for rows.Next() {
+		var name string
+		require.NoError(t, rows.Scan(&name))
+		names = append(names, name)
+	}
+	assert.Equal(t, []string{"outer"}, names)
 }
 
 func TestInviteUsedConcurrently(t *testing.T) {
@@ -156,7 +177,7 @@ func TestInviteValidity(t *testing.T) {
 	_, err := s.CreateInvite(ctx, domain.Invite{FamilyID: f.ID, Code: "BBBBBBBBBB", CreatedBy: 1, ExpiresAt: time.Now().Add(time.Hour), MaxUses: 5})
 	require.NoError(t, err)
 	_, err = s.CreateInvite(ctx, domain.Invite{FamilyID: f.ID, Code: "BBBBBBBBBB", CreatedBy: 1, ExpiresAt: time.Now().Add(time.Hour), MaxUses: 5})
-	assert.ErrorIs(t, err, postgres.ErrDuplicateInviteCode)
+	assert.ErrorIs(t, err, domain.ErrDuplicateInviteCode)
 
 	expired, err := s.CreateInvite(ctx, domain.Invite{FamilyID: f.ID, Code: "CCCCCCCCCC", CreatedBy: 1, ExpiresAt: time.Now().Add(-time.Minute), MaxUses: 5})
 	require.NoError(t, err)
@@ -342,7 +363,7 @@ func TestDeleteUserData(t *testing.T) {
 	f := family(t, s, "Ивановы", 1, 2)
 	expense(t, s, f.ID, 2, 500, domain.CategoryFood, "2026-10-15", "обед")
 	expense(t, s, f.ID, 1, 300, domain.CategoryFood, "2026-10-15", "кофе")
-	require.NoError(t, s.WithTx(ctx, func(tx *postgres.Store) error { return tx.DeleteUserData(ctx, 2) }))
+	require.NoError(t, s.WithTx(ctx, func(ctx context.Context) error { return s.DeleteUserData(ctx, 2) }))
 
 	_, err := s.GetUser(ctx, 2)
 	assert.ErrorIs(t, err, domain.ErrNotFound)

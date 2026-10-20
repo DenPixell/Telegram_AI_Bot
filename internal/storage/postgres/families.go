@@ -17,21 +17,21 @@ func scanFamily(row pgx.Row) (domain.Family, error) {
 }
 
 func (s *Store) CreateFamily(ctx context.Context, name, defaultTZ string) (domain.Family, error) {
-	f, err := scanFamily(s.q.QueryRow(ctx,
+	f, err := scanFamily(s.conn(ctx).QueryRow(ctx,
 		`INSERT INTO families (name, default_tz) VALUES ($1, $2) RETURNING `+familyColumns,
 		name, defaultTZ))
 	return f, mapErr("create family", err)
 }
 
 func (s *Store) GetFamily(ctx context.Context, id int64) (domain.Family, error) {
-	f, err := scanFamily(s.q.QueryRow(ctx, `SELECT `+familyColumns+` FROM families WHERE id = $1`, id))
+	f, err := scanFamily(s.conn(ctx).QueryRow(ctx, `SELECT `+familyColumns+` FROM families WHERE id = $1`, id))
 	return f, mapErr("get family", err)
 }
 
 // SoleFamilyID возвращает id единственной семьи (режим панели none без PANEL_FAMILY_ID).
 // ErrNotFound, если семей нет, ErrConflict, если их больше одной.
 func (s *Store) SoleFamilyID(ctx context.Context) (int64, error) {
-	rows, err := s.q.Query(ctx, `SELECT id FROM families ORDER BY id LIMIT 2`)
+	rows, err := s.conn(ctx).Query(ctx, `SELECT id FROM families ORDER BY id LIMIT 2`)
 	if err != nil {
 		return 0, mapErr("sole family", err)
 	}
@@ -50,7 +50,7 @@ func (s *Store) SoleFamilyID(ctx context.Context) (int64, error) {
 }
 
 func (s *Store) UpdateFamily(ctx context.Context, id int64, name, defaultTZ string) (domain.Family, error) {
-	f, err := scanFamily(s.q.QueryRow(ctx,
+	f, err := scanFamily(s.conn(ctx).QueryRow(ctx,
 		`UPDATE families SET name = $2, default_tz = $3 WHERE id = $1 RETURNING `+familyColumns,
 		id, name, defaultTZ))
 	return f, mapErr("update family", err)

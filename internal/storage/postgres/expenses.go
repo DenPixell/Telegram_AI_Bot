@@ -47,7 +47,7 @@ func scopeWhere(scope domain.ExpenseScope, args *[]any) (string, error) {
 
 // CreateExpense сохраняет трату. FamilyID и UserID берутся из e и должны прийти из Actor.
 func (s *Store) CreateExpense(ctx context.Context, e domain.Expense) (domain.Expense, error) {
-	res, err := scanExpense(s.q.QueryRow(ctx, `
+	res, err := scanExpense(s.conn(ctx).QueryRow(ctx, `
 		INSERT INTO expenses (family_id, user_id, amount_minor, category, spent_at, title, comment)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING `+expenseColumns,
@@ -61,7 +61,7 @@ func (s *Store) GetExpense(ctx context.Context, scope domain.ExpenseScope, id in
 	if err != nil {
 		return domain.Expense{}, err
 	}
-	e, err := scanExpense(s.q.QueryRow(ctx,
+	e, err := scanExpense(s.conn(ctx).QueryRow(ctx,
 		`SELECT `+expenseColumns+` FROM expenses WHERE id = $1 AND `+where, args...))
 	return e, mapErr("get expense", err)
 }
@@ -73,7 +73,7 @@ func (s *Store) LastExpense(ctx context.Context, scope domain.ExpenseScope) (dom
 	if err != nil {
 		return domain.Expense{}, err
 	}
-	e, err := scanExpense(s.q.QueryRow(ctx,
+	e, err := scanExpense(s.conn(ctx).QueryRow(ctx,
 		`SELECT `+expenseColumns+` FROM expenses WHERE `+where+` ORDER BY created_at DESC, id DESC LIMIT 1`, args...))
 	return e, mapErr("last expense", err)
 }
@@ -140,7 +140,7 @@ func (s *Store) ListExpenses(ctx context.Context, f domain.ExpenseFilter) ([]dom
 	args = append(args, limit, max(f.Offset, 0))
 	n := len(args)
 
-	rows, err := s.q.Query(ctx, `SELECT `+expenseColumns+` FROM expenses WHERE `+where+
+	rows, err := s.conn(ctx).Query(ctx, `SELECT `+expenseColumns+` FROM expenses WHERE `+where+
 		` ORDER BY spent_at DESC, created_at DESC, id DESC LIMIT $`+strconv.Itoa(n-1)+` OFFSET $`+strconv.Itoa(n), args...)
 	if err != nil {
 		return nil, mapErr("list expenses", err)
@@ -160,7 +160,7 @@ func (s *Store) SumExpenses(ctx context.Context, f domain.ExpenseFilter) (domain
 		total domain.Money
 		count int
 	)
-	err = s.q.QueryRow(ctx,
+	err = s.conn(ctx).QueryRow(ctx,
 		`SELECT COALESCE(sum(amount_minor), 0), count(*) FROM expenses WHERE `+where, args...).Scan(&total, &count)
 	return total, count, mapErr("sum expenses", err)
 }
@@ -173,7 +173,7 @@ func (s *Store) UpdateExpense(ctx context.Context, scope domain.ExpenseScope, e 
 	if err != nil {
 		return domain.Expense{}, err
 	}
-	res, err := scanExpense(s.q.QueryRow(ctx, `
+	res, err := scanExpense(s.conn(ctx).QueryRow(ctx, `
 		UPDATE expenses
 		SET amount_minor = $3, category = $4, spent_at = $5, title = $6, comment = $7,
 		    version = version + 1, updated_at = now()
@@ -211,7 +211,7 @@ func (s *Store) SummarizeExpenses(ctx context.Context, f domain.ExpenseFilter) (
 	if sum.Total, sum.Count, err = s.SumExpenses(ctx, f); err != nil {
 		return domain.ExpenseSummary{}, err
 	}
-	rows, err := s.q.Query(ctx, `SELECT category, sum(amount_minor), count(*) FROM expenses WHERE `+where+
+	rows, err := s.conn(ctx).Query(ctx, `SELECT category, sum(amount_minor), count(*) FROM expenses WHERE `+where+
 		` GROUP BY category ORDER BY sum(amount_minor) DESC, category`, args...)
 	if err != nil {
 		return domain.ExpenseSummary{}, mapErr("summary by category", err)
@@ -222,7 +222,7 @@ func (s *Store) SummarizeExpenses(ctx context.Context, f domain.ExpenseFilter) (
 	}); err != nil {
 		return domain.ExpenseSummary{}, mapErr("summary by category", err)
 	}
-	rows, err = s.q.Query(ctx, `SELECT user_id, sum(amount_minor), count(*) FROM expenses WHERE `+where+
+	rows, err = s.conn(ctx).Query(ctx, `SELECT user_id, sum(amount_minor), count(*) FROM expenses WHERE `+where+
 		` GROUP BY user_id ORDER BY sum(amount_minor) DESC, user_id`, args...)
 	if err != nil {
 		return domain.ExpenseSummary{}, mapErr("summary by member", err)
@@ -233,7 +233,7 @@ func (s *Store) SummarizeExpenses(ctx context.Context, f domain.ExpenseFilter) (
 	}); err != nil {
 		return domain.ExpenseSummary{}, mapErr("summary by member", err)
 	}
-	rows, err = s.q.Query(ctx, `SELECT spent_at, sum(amount_minor) FROM expenses WHERE `+where+
+	rows, err = s.conn(ctx).Query(ctx, `SELECT spent_at, sum(amount_minor) FROM expenses WHERE `+where+
 		` GROUP BY spent_at ORDER BY spent_at LIMIT 400`, args...)
 	if err != nil {
 		return domain.ExpenseSummary{}, mapErr("summary by day", err)

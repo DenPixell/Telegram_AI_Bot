@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"expense-bot/internal/domain"
-	"expense-bot/internal/storage/postgres"
 )
 
 const (
@@ -25,11 +24,11 @@ var ErrUnauthenticated = errors.New("unauthenticated")
 // Auth - вход владельца в панель по одноразовой ссылке и сессии (PANEL_AUTH_MODE=magic_link).
 // Секреты отдаются клиенту, в БД хранятся только их SHA-256.
 type Auth struct {
-	store *postgres.Store
+	store AuthStore
 	now   func() time.Time
 }
 
-func NewAuth(store *postgres.Store) *Auth {
+func NewAuth(store AuthStore) *Auth {
 	return &Auth{store: store, now: time.Now}
 }
 
@@ -60,15 +59,15 @@ func (a *Auth) CreateLoginToken(ctx context.Context, actor domain.Actor) (token 
 // должен оставаться владельцем семьи.
 func (a *Auth) Exchange(ctx context.Context, token string) (Session, error) {
 	var sess Session
-	err := a.store.WithTx(ctx, func(tx *postgres.Store) error {
-		userID, err := tx.UseLoginToken(ctx, hashSecret(token))
+	err := a.store.WithTx(ctx, func(ctx context.Context) error {
+		userID, err := a.store.UseLoginToken(ctx, hashSecret(token))
 		if errors.Is(err, domain.ErrNotFound) {
 			return ErrUnauthenticated
 		}
 		if err != nil {
 			return err
 		}
-		actor, err := ownerActor(ctx, tx, userID)
+		actor, err := ownerActor(ctx, a.store, userID)
 		if err != nil {
 			return err
 		}
@@ -77,7 +76,7 @@ func (a *Auth) Exchange(ctx context.Context, token string) (Session, error) {
 			return err
 		}
 		sess = Session{ID: id, Actor: actor, ExpiresAt: a.now().Add(SessionTTL)}
-		return tx.CreateSession(ctx, hash, userID, sess.ExpiresAt)
+		return a.store.CreateSession(ctx, hash, userID, sess.ExpiresAt)
 	})
 	if err != nil {
 		return Session{}, fmt.Errorf("exchange login token: %w", err)
@@ -122,7 +121,7 @@ func CSRFToken(sessionID string) string {
 
 // PanelOwner - действия в режиме PANEL_AUTH_MODE=none: от имени владельца семьи familyID
 // (0 = единственная существующая семья).
-func PanelOwner(ctx context.Context, store *postgres.Store, familyID int64) (domain.Actor, error) {
+func PanelOwner(ctx context.Context, store PanelStore, familyID int64) (domain.Actor, error) {
 	if familyID == 0 {
 		id, err := store.SoleFamilyID(ctx)
 		if err != nil {
@@ -138,7 +137,7 @@ func PanelOwner(ctx context.Context, store *postgres.Store, familyID int64) (dom
 }
 
 // ownerActor строит Actor и требует роль владельца: панель доступна только ему.
-func ownerActor(ctx context.Context, s *postgres.Store, userID int64) (domain.Actor, error) {
+func ownerActor(ctx context.Context, s membershipReader, userID int64) (domain.Actor, error) {
 	m, err := s.GetMembership(ctx, userID)
 	if errors.Is(err, domain.ErrNotFound) {
 		return domain.Actor{}, domain.ErrForbidden

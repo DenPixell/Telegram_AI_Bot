@@ -13,7 +13,7 @@ func (s *Store) GetLearnedTerm(ctx context.Context, stem string) (domain.Learned
 		t   domain.LearnedTerm
 		cat *string
 	)
-	err := s.q.QueryRow(ctx, `
+	err := s.conn(ctx).QueryRow(ctx, `
 		UPDATE learned_terms SET hits = hits + 1 WHERE stem = $1
 		RETURNING stem, word, title, category, source, updated_at`, stem).
 		Scan(&t.Stem, &t.Word, &t.Title, &cat, &t.Source, &t.UpdatedAt)
@@ -25,7 +25,7 @@ func (s *Store) GetLearnedTerm(ctx context.Context, stem string) (domain.Learned
 
 // SaveLearnedTerm сохраняет или обновляет слово. Category "" - отрицательный кэш.
 func (s *Store) SaveLearnedTerm(ctx context.Context, t domain.LearnedTerm) error {
-	_, err := s.q.Exec(ctx, `
+	_, err := s.conn(ctx).Exec(ctx, `
 		INSERT INTO learned_terms (stem, word, title, category, source)
 		VALUES ($1, $2, $3, NULLIF($4, ''), $5)
 		ON CONFLICT (stem) DO UPDATE

@@ -20,7 +20,7 @@ func scanInvite(row pgx.Row) (domain.Invite, error) {
 
 // CreateInvite сохраняет приглашение. ErrDuplicateInviteCode - коллизия кода, нужно сгенерировать новый.
 func (s *Store) CreateInvite(ctx context.Context, inv domain.Invite) (domain.Invite, error) {
-	res, err := scanInvite(s.q.QueryRow(ctx, `
+	res, err := scanInvite(s.conn(ctx).QueryRow(ctx, `
 		INSERT INTO invites (family_id, code, created_by, expires_at, max_uses)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING `+inviteColumns,
@@ -32,7 +32,7 @@ func (s *Store) CreateInvite(ctx context.Context, inv domain.Invite) (domain.Inv
 // Неверный, истёкший, отозванный и исчерпанный код дают одну ошибку ErrInviteInvalid.
 // Вызывать в одной транзакции с AddMember, чтобы откат вернул использование.
 func (s *Store) UseInvite(ctx context.Context, code string) (domain.Invite, error) {
-	inv, err := scanInvite(s.q.QueryRow(ctx, `
+	inv, err := scanInvite(s.conn(ctx).QueryRow(ctx, `
 		UPDATE invites SET used_count = used_count + 1
 		WHERE code = $1 AND revoked_at IS NULL AND expires_at > now() AND used_count < max_uses
 		RETURNING `+inviteColumns, code))
@@ -44,7 +44,7 @@ func (s *Store) UseInvite(ctx context.Context, code string) (domain.Invite, erro
 
 // ListActiveInvites возвращает действующие приглашения семьи, новые первыми.
 func (s *Store) ListActiveInvites(ctx context.Context, familyID int64) ([]domain.Invite, error) {
-	rows, err := s.q.Query(ctx, `
+	rows, err := s.conn(ctx).Query(ctx, `
 		SELECT `+inviteColumns+` FROM invites
 		WHERE family_id = $1 AND revoked_at IS NULL AND expires_at > now() AND used_count < max_uses
 		ORDER BY created_at DESC, id DESC`, familyID)

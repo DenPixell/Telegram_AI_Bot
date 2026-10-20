@@ -5,7 +5,7 @@ import "context"
 // MarkUpdateProcessed отмечает апдейт Telegram обработанным. false - он уже был
 // (повторная доставка после рестарта): обрабатывать второй раз нельзя.
 func (s *Store) MarkUpdateProcessed(ctx context.Context, updateID int64) (bool, error) {
-	tag, err := s.q.Exec(ctx,
+	tag, err := s.conn(ctx).Exec(ctx,
 		`INSERT INTO processed_updates (update_id) VALUES ($1) ON CONFLICT DO NOTHING`, updateID)
 	if err != nil {
 		return false, mapErr("mark update", err)
@@ -15,7 +15,7 @@ func (s *Store) MarkUpdateProcessed(ctx context.Context, updateID int64) (bool, 
 
 // DeleteOldUpdates чистит журнал дедупликации старше двух суток.
 func (s *Store) DeleteOldUpdates(ctx context.Context) (int64, error) {
-	tag, err := s.q.Exec(ctx, `DELETE FROM processed_updates WHERE processed_at < now() - interval '2 days'`)
+	tag, err := s.conn(ctx).Exec(ctx, `DELETE FROM processed_updates WHERE processed_at < now() - interval '2 days'`)
 	if err != nil {
 		return 0, mapErr("delete old updates", err)
 	}
@@ -35,7 +35,7 @@ func (s *Store) DeleteUserData(ctx context.Context, userID int64) error {
 		`DELETE FROM family_members WHERE user_id = $1`,
 		`DELETE FROM users WHERE telegram_id = $1`,
 	} {
-		if _, err := s.q.Exec(ctx, q, userID); err != nil {
+		if _, err := s.conn(ctx).Exec(ctx, q, userID); err != nil {
 			return mapErr("delete user data", err)
 		}
 	}

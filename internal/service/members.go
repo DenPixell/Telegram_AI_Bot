@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"expense-bot/internal/domain"
-	"expense-bot/internal/storage/postgres"
 )
 
 // ListMembers возвращает участников семьи (владелец первым). Только владелец.
@@ -45,14 +44,14 @@ func (f *Families) RemoveMember(ctx context.Context, a domain.Actor, userID int6
 	if userID == a.UserID {
 		return fmt.Errorf("remove member: %w: владелец не может удалить сам себя, сначала передайте владение", domain.ErrValidation)
 	}
-	err := f.store.WithTx(ctx, func(tx *postgres.Store) error {
-		if err := tx.LockUser(ctx, userID); err != nil {
+	err := f.store.WithTx(ctx, func(ctx context.Context) error {
+		if err := f.store.LockUser(ctx, userID); err != nil {
 			return err
 		}
-		if err := tx.RemoveMember(ctx, a.FamilyID, userID); err != nil {
+		if err := f.store.RemoveMember(ctx, a.FamilyID, userID); err != nil {
 			return err
 		}
-		return detachUser(ctx, tx, userID)
+		return f.detachUser(ctx, userID)
 	})
 	if err != nil {
 		return fmt.Errorf("remove member: %w", err)
@@ -69,27 +68,27 @@ func (f *Families) TransferOwnership(ctx context.Context, a domain.Actor, newOwn
 	if newOwnerID == a.UserID {
 		return fmt.Errorf("transfer ownership: %w: этот участник уже владелец", domain.ErrValidation)
 	}
-	err := f.store.WithTx(ctx, func(tx *postgres.Store) error {
+	err := f.store.WithTx(ctx, func(ctx context.Context) error {
 		// Блокировки в порядке возрастания id, чтобы два встречных вызова не взаимоблокировались.
 		first, second := min(a.UserID, newOwnerID), max(a.UserID, newOwnerID)
-		if err := tx.LockUser(ctx, first); err != nil {
+		if err := f.store.LockUser(ctx, first); err != nil {
 			return err
 		}
-		if err := tx.LockUser(ctx, second); err != nil {
+		if err := f.store.LockUser(ctx, second); err != nil {
 			return err
 		}
 		// Понизить текущего владельца первым, иначе сработает uniq_family_owner.
 		// execOne с family_id гарантирует, что оба в этой семье и Actor не устарел.
-		if err := tx.SetMemberRole(ctx, a.FamilyID, a.UserID, domain.RoleMember); err != nil {
+		if err := f.store.SetMemberRole(ctx, a.FamilyID, a.UserID, domain.RoleMember); err != nil {
 			return err
 		}
-		if err := tx.SetMemberRole(ctx, a.FamilyID, newOwnerID, domain.RoleOwner); err != nil {
+		if err := f.store.SetMemberRole(ctx, a.FamilyID, newOwnerID, domain.RoleOwner); err != nil {
 			return err
 		}
-		if err := tx.DeleteUserSessions(ctx, a.UserID); err != nil {
+		if err := f.store.DeleteUserSessions(ctx, a.UserID); err != nil {
 			return err
 		}
-		return tx.DeleteUserSessions(ctx, newOwnerID)
+		return f.store.DeleteUserSessions(ctx, newOwnerID)
 	})
 	if errors.Is(err, domain.ErrConflict) {
 		// Владелец уже сменился параллельно: Actor устарел.
